@@ -122,7 +122,7 @@ app.get('*path', (_req, res) => res.sendFile(path.join(root, 'dist', 'index.html
 
 app.listen(port, '0.0.0.0', () => {
   const address = localAddress()
-  console.log(`以昕教师端：http://localhost:${port}/teacher-copilot/`)
+  console.log(`知昕教师端：http://localhost:${port}/teacher-copilot/`)
   console.log(`学生扫码地址：http://${address}:${port}/teacher-copilot/`)
   console.log('请确保手机与电脑连接同一 Wi-Fi')
   if (process.platform === 'win32') execFile('cmd.exe', ['/c', 'start', '', `http://localhost:${port}/teacher-copilot/`], { windowsHide: true })

@@ -108,13 +108,13 @@ function StudentTask() {
   const task = payload.task
   return (
     <div className="student-shell">
-      <div className="student-brand"><span className="logo-mark"><BookOpen size={22} /></span><b>以昕</b><em>学生任务</em></div>
+      <div className="student-brand"><span className="logo-mark"><BookOpen size={22} /></span><b>知昕</b><em>学生任务</em></div>
       <main className="student-card">
         {syncComplete ? (
           <div className="result-card">
             <span className="success-icon pulse-success"><Check size={34} /></span>
             <h1>已自动提交</h1>
-            <p>反馈已同步至老师的以昕工作台，无需再出示二维码。</p>
+            <p>反馈已同步至老师的知昕工作台，无需再出示二维码。</p>
             <div className="sync-receipt"><CheckCircle2 size={20} /><div><b>老师端已接收</b><span>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div></div>
             <div className="privacy-note"><ShieldCheck size={17} />仅在校园局域网内传输 · 未上传云端</div>
           </div>
@@ -242,11 +242,11 @@ export default function App() {
     e.target.value = ''
   }
 
-  const title = page === 'home' ? '以昕' : nav.find(n => n.id === page)?.label || '工作台'
+  const title = page === 'home' ? '知昕' : nav.find(n => n.id === page)?.label || '工作台'
   return (
     <div className={`app page-${page}`}>
       <aside className={sidebar ? 'sidebar open' : 'sidebar'}>
-        <div className="brand"><span className="logo-mark"><BookOpen size={22} /></span><div><b>以昕</b><small>教师工作台</small></div><button aria-label="关闭菜单" className="sidebar-close" onClick={() => setSidebar(false)}><X /></button></div>
+        <div className="brand"><span className="logo-mark"><BookOpen size={22} /></span><div><b>知昕</b><small>教师工作台</small></div><button aria-label="关闭菜单" className="sidebar-close" onClick={() => setSidebar(false)}><X /></button></div>
         <div className="teacher-mini">
           <div className="avatar">江</div><div><b>江老师</b><span>高一（3）班 · 班主任</span></div><ChevronDown size={16} />
         </div>
@@ -276,7 +276,7 @@ export default function App() {
         <div className="content">
           {page === 'home' && <>
             <div className="desktop-home"><Home data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
-            <div className="mobile-home"><MobileHome data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} /></div>
+            <div className="mobile-home"><MobileHome data={data} setPage={setPage} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} /></div>
           </>}
           {page === 'class' && <Classroom students={filteredStudents} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
@@ -315,10 +315,9 @@ export default function App() {
   )
 }
 
-function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
+function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
   data: AppData
   setPage: (p: Page) => void
-  updateTodo: (id: string) => void
   onQr: () => void
   onVoice: () => void
   onTodo: () => void
@@ -327,7 +326,17 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
   const next = pending[0]
   const task = data.tasks[0]
   const progress = task ? Math.round(task.completed / task.total * 100) : 0
-  const mascot = `${import.meta.env.BASE_URL}mascot/xiaoxin-peek.webp`
+  const careStates = [
+    { id: 'water', title: '喝口温水吧', text: '忙碌的时候，也别忘了照顾自己。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-water.webp` },
+    { id: 'stretch', title: '起来伸展一下', text: '站起来活动肩颈，眼睛也休息一会儿。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-stretch.webp` },
+    { id: 'care', title: '心情最重要', text: '事情慢慢做就好，你已经很认真了。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-care.webp` }
+  ]
+  const [careIndex, setCareIndex] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => setCareIndex(index => (index + 1) % careStates.length), 9000)
+    return () => window.clearInterval(timer)
+  }, [careStates.length])
+  const activeCare = careStates[careIndex]
   const glance = [
     { value: pending.length, label: '待办', note: '1项紧急', className: 'coral' },
     { value: '14:30', label: '下一日程', note: '年级教研', className: 'violet' },
@@ -344,9 +353,23 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
       <div className="mobile-greeting-copy">
         <span className="mobile-date">7月28日 · 星期二</span>
         <h2>下午好，江老师 <i>☀</i></h2>
-        <p>今天的事情都在这里，我陪你从容完成。</p>
+        <p>先照顾好自己，再从容照顾好每个孩子。</p>
       </div>
-      <div className="greeting-tip"><Sparkles size={14} /><span>先处理最紧急的一件事</span></div>
+      <div className="greeting-tip"><Sparkles size={14} /><span>今日心情 · 平静</span></div>
+    </section>
+
+    <section className="wellness-strip" aria-label="今日关怀">
+      <div><span>💧</span><b>5 杯</b><small>今日饮水</small></div>
+      <div><span>🌿</span><b>3 次</b><small>起身活动</small></div>
+      <div><span>☺</span><b>平静</b><small>今日心情</small></div>
+    </section>
+
+    <section className={`care-companion care-${activeCare.id}`} aria-live="polite">
+      <div className="care-copy"><span>小昕的关怀提醒</span><h3>{activeCare.title}</h3><p>{activeCare.text}</p></div>
+      <div className="pet-stage" aria-hidden="true">
+        {careStates.map((state, index) => <img key={state.id} className={index === careIndex ? `active pet-${state.id}` : ''} src={state.image} alt="" />)}
+      </div>
+      <div className="care-dots">{careStates.map((state, index) => <i className={index === careIndex ? 'active' : ''} key={state.id} />)}</div>
     </section>
 
     <section className="today-glance" aria-label="今日一览">
@@ -358,10 +381,10 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
     </section>
 
     <div className="today-section-head"><div><span>现在</span><h3>下一件事</h3></div><button onClick={() => setPage('todos')}>全部待办</button></div>
-    {next ? <section className="next-card">
+    {next ? <section className="next-card" onClick={() => setPage('todos')}>
       <div className="next-time"><Clock3 size={18} /><strong>{next.time}</strong><span>{next.date}</span></div>
       <div className="next-copy"><span className="next-priority">{next.priority}</span><h3>{next.title}</h3><p>{next.source} · 预计 15 分钟</p></div>
-      <button className="next-check" onClick={() => updateTodo(next.id)} aria-label="标记为完成"><Check size={20} /></button>
+      <span className="next-open">›</span>
     </section> : <section className="next-card all-done"><CheckCircle2 /><div><h3>今天的待办完成啦</h3><p>可以安心喝口水，休息一下。</p></div></section>}
 
     <section className="today-flow">
@@ -397,10 +420,6 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
       <button onClick={onTodo}><span className="quick-icon todo"><Plus /></span><b>添加待办</b><small>一句话记下</small></button>
     </section>
     <p className="mobile-quote"><Sparkles size={15} /> 今天也已经做得很好了</p>
-    <button className="mascot-roamer" onClick={onVoice} aria-label="小昕在这里，点击开始语音">
-      <span>问小昕</span>
-      <img src={mascot} alt="探头的小昕" />
-    </button>
   </div>
 }
 
@@ -724,7 +743,7 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
       if (parsed.type !== 'zhixu-feedback') throw new Error()
       controlsRef.current?.stop()
       onImport(parsed.feedback)
-    } catch { setError('未识别到有效的以昕反馈码内容') }
+    } catch { setError('未识别到有效的知昕反馈码内容') }
   }
   async function startScan() {
     setError('')
