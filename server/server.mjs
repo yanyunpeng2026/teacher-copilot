@@ -2,7 +2,7 @@ import express from 'express'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -112,4 +112,5 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`知序教师端：http://localhost:${port}/teacher-copilot/`)
   console.log(`学生扫码地址：http://${address}:${port}/teacher-copilot/`)
   console.log('请确保手机与电脑连接同一 Wi-Fi')
+  if (process.platform === 'win32') execFile('cmd.exe', ['/c', 'start', '', `http://localhost:${port}/teacher-copilot/`], { windowsHide: true })
 })
