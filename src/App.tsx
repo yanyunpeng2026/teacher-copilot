@@ -5,8 +5,8 @@ import {
   Archive, Award, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronDown,
   CircleUserRound, ClipboardCheck, Clock3, Download, FileArchive, FileText,
   FolderOpen, GraduationCap, LayoutDashboard, ListTodo, Menu, MoreHorizontal,
-  Plus, QrCode, ScanLine, Search, Settings, ShieldCheck, Sparkles, Star,
-  Upload, UserPlus, Users, WandSparkles, X
+  Mic, Plus, QrCode, ScanLine, Search, Settings, ShieldCheck, Sparkles, Star,
+  Upload, UserPlus, Users, Volume2, WandSparkles, X
 } from 'lucide-react'
 import type { AppData, Feedback, Student, Task, Todo } from './types'
 import { exportData, loadData, saveData } from './storage'
@@ -156,9 +156,20 @@ export default function App() {
   const [qrUrl, setQrUrl] = useState('')
   const [sidebar, setSidebar] = useState(false)
   const [sync, setSync] = useState<SyncState>({ connected: false, origin: '', address: '' })
+  const [voiceOpen, setVoiceOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => saveData(data), [data])
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'x') {
+        event.preventDefault()
+        setVoiceOpen(true)
+      }
+    }
+    window.addEventListener('keydown', shortcut)
+    return () => window.removeEventListener('keydown', shortcut)
+  }, [])
   useEffect(() => {
     let stop = () => {}
     detectSync().then(async state => {
@@ -256,6 +267,7 @@ export default function App() {
           <div className="top-actions">
             <div className={`sync-chip ${sync.connected ? 'online' : ''}`}><i />{sync.connected ? '局域网同步中' : '单机模式'}</div>
             <label className="search"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索学生、材料或待办" /></label>
+            <button aria-label="问小知" className="voice-trigger" onClick={() => setVoiceOpen(true)}><Mic size={18} /><span>问小知</span><kbd>Ctrl ⇧ X</kbd></button>
             <button aria-label="通知" className="icon-btn alert"><Bell size={20} /><i /></button>
             <button className="primary" onClick={() => setModal('quick')}><Plus size={18} />快速新建</button>
           </div>
@@ -272,6 +284,8 @@ export default function App() {
         </div>
       </main>
       {toast && <div className={`toast ${toast.kind || ''}`}><CheckCircle2 size={18} />{toast.text}</div>}
+      <button className="voice-fab" aria-label="问小知语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
+      {voiceOpen && <VoiceAssistant todos={data.todos} total={data.students.length} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
 
       {modal === 'quick' && <Modal title="快速新建" onClose={() => setModal(null)}><div className="quick-grid">
         {[['新建待办', ListTodo, 'new-todo'], ['发布扫码任务', QrCode, 'new-task'], ['添加学生', UserPlus, 'new-student'], ['导入材料', Upload, 'upload-material']].map(([label, Icon, key]) => <button key={String(key)} onClick={() => setModal(String(key))}><Icon size={24} /><b>{String(label)}</b><span>立即开始</span></button>)}
@@ -369,6 +383,174 @@ function Documents({ notify }: { notify: (x: string) => void }) {
     ['通知回执生成', '把通知快速变为扫码确认任务', QrCode, '无需重复录入']
   ] as const
   return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">DOCUMENT TOOLBOX</span><h2>文档处理工具</h2><p>能扫描就不手输，能批量就不重复</p></div></section><div className="doc-tools">{tools.map(([title, desc, Icon, badge]) => <button key={title} onClick={() => notify(`${title}已进入本地处理队列`)}><span><Icon /></span><div><h3>{title}</h3><p>{desc}</p><em>{badge}</em></div><strong>开始使用 →</strong></button>)}</div><section className="scan-banner"><div className="scan-visual"><ScanLine /></div><div><span>快速入口</span><h3>拍照扫描纸质材料</h3><p>自动裁边、增强清晰度并识别文字，识别结果只保存在本机。</p></div><button className="primary">打开扫描器</button></section></div>
+}
+
+type VoiceRecognition = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  start: () => void
+  stop: () => void
+  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null
+  onerror: (() => void) | null
+  onend: (() => void) | null
+}
+
+type VoiceRecognitionCtor = new () => VoiceRecognition
+
+function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; total: number; onClose: () => void; onPublish: (task: Task) => void }) {
+  const [listening, setListening] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const [reply, setReply] = useState('我在。你可以问我接下来要做什么，或直接发布简单任务。')
+  const recognitionRef = useRef<VoiceRecognition | null>(null)
+  const voiceApi = window as typeof window & { SpeechRecognition?: VoiceRecognitionCtor; webkitSpeechRecognition?: VoiceRecognitionCtor }
+  const Recognition = voiceApi.SpeechRecognition || voiceApi.webkitSpeechRecognition
+
+  useEffect(() => () => {
+    recognitionRef.current?.stop()
+    speechSynthesis.cancel()
+  }, [])
+
+  function speak(text: string) {
+    speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'zh-CN'
+    utterance.rate = .96
+    const chineseVoice = speechSynthesis.getVoices().find(voice => voice.lang.toLowerCase().startsWith('zh'))
+    if (chineseVoice) utterance.voice = chineseVoice
+    speechSynthesis.speak(utterance)
+  }
+
+  function nextDue(raw: string) {
+    const date = new Date()
+    if (raw.includes('后天')) date.setDate(date.getDate() + 2)
+    else if (raw.includes('明天')) date.setDate(date.getDate() + 1)
+    let hour = raw.includes('晚上') ? 20 : raw.includes('下午') ? 15 : raw.includes('上午') ? 10 : 18
+    let minute = 0
+    const time = raw.match(/(\d{1,2})\s*[点时](半|(\d{1,2})\s*分?)?/)
+    if (time) {
+      hour = Number(time[1])
+      if ((raw.includes('下午') || raw.includes('晚上')) && hour < 12) hour += 12
+      minute = time[2] === '半' ? 30 : Number(time[3] || 0)
+    }
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    return `${day} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  }
+
+  function handleCommand(input: string) {
+    const command = input.replace(/[，。！？、]/g, ' ').replace(/问小知|小知/g, '').trim()
+    setTranscript(input)
+    if (/下面.*干嘛|接下来.*做什么|还有.*待办|播报.*待办|今天.*任务/.test(command)) {
+      const pending = todos.filter(todo => !todo.done).slice(0, 5)
+      const message = pending.length
+        ? `你接下来有${pending.length}项待办。${pending.map((todo, index) => `第${index + 1}项，${todo.title}，${todo.date}${todo.time}`).join('。')}。`
+        : '目前没有未完成的待办，可以稍微休息一下。'
+      setReply(message)
+      speak(message)
+      return
+    }
+    if (/发布.*任务|布置.*任务|发个.*通知/.test(command)) {
+      const raw = command.replace(/^.*?(?:发布|布置)(?:一个|个)?(?:简单)?任务\s*[:：]?/, '').replace(/^.*?发个通知\s*[:：]?/, '').trim()
+      if (!raw) {
+        const message = '请在发布任务后面说出任务内容，例如：发布简单任务，明天带学生证。'
+        setReply(message)
+        speak(message)
+        return
+      }
+      const title = raw.split(/截止|请在/)[0].trim() || raw
+      const task: Task = {
+        id: uid('q'),
+        title,
+        description: '由小知语音助手快速发布，请按要求完成并提交确认。',
+        due: nextDue(raw),
+        fields: ['是否完成', '备注'],
+        audience: '高一（3）班',
+        created: new Date().toISOString().slice(0, 10),
+        completed: 0,
+        total
+      }
+      const message = `已为高一三班发布任务：${title}。截止时间是${task.due.slice(5)}。`
+      setReply(message)
+      speak(message)
+      window.setTimeout(() => onPublish(task), 900)
+      return
+    }
+    const message = '我暂时没听懂。你可以说：下面我要干嘛，或者，发布简单任务，明天带学生证。'
+    setReply(message)
+    speak(message)
+  }
+
+  async function startListening() {
+    setListening(true)
+    setTranscript('')
+    setReply('正在听，请说“问小知……”')
+    try {
+      const health = await fetch('/api/health')
+      if (health.ok) {
+        const response = await fetch('/api/voice/recognize', { method: 'POST' })
+        if (!response.ok) {
+          setListening(false)
+          setReply('本地语音引擎没有听清，或尚未安装中文语音包。请重试，也可以输入指令。')
+          return
+        }
+        const result = await response.json() as { text: string }
+        setListening(false)
+        handleCommand(result.text)
+        return
+      }
+    } catch {
+      setListening(false)
+    }
+    if (!Recognition) {
+      const message = '当前浏览器不支持语音识别，可以在下方输入指令。建议在 Windows Edge 或安卓 Chrome 中使用。'
+      setReply(message)
+      speak(message)
+      setListening(false)
+      return
+    }
+    recognitionRef.current?.stop()
+    const recognition = new Recognition()
+    recognition.lang = 'zh-CN'
+    recognition.continuous = false
+    recognition.interimResults = true
+    recognition.onresult = event => {
+      let value = ''
+      let final = false
+      for (let index = 0; index < event.results.length; index += 1) {
+        value += event.results[index][0].transcript
+        final = final || event.results[index].isFinal
+      }
+      setTranscript(value)
+      if (final) handleCommand(value)
+    }
+    recognition.onerror = () => {
+      setListening(false)
+      setReply('没有听清，请靠近麦克风再说一次。')
+    }
+    recognition.onend = () => setListening(false)
+    recognitionRef.current = recognition
+    setListening(true)
+    setReply('正在听，请说“问小知……”')
+    recognition.start()
+  }
+
+  return <div className="voice-backdrop" onMouseDown={onClose}>
+    <section className="voice-sheet" onMouseDown={event => event.stopPropagation()}>
+      <header><div className="xiaozhi-mark"><Sparkles size={20} /></div><div><b>问小知</b><span>本地语音工作助手</span></div><button aria-label="关闭语音助手" onClick={onClose}><X size={19} /></button></header>
+      <div className={`voice-orb ${listening ? 'listening' : ''}`}>
+        <button aria-label={listening ? '正在聆听' : '开始语音输入'} onClick={startListening}><Mic size={30} /></button>
+        {listening && <><i /><i /><i /></>}
+      </div>
+      <div className="voice-status"><b>{listening ? '正在聆听…' : '点击麦克风，然后说话'}</b><span>{transcript || '“问小知，下面我要干嘛？”'}</span></div>
+      <div className="voice-reply"><Volume2 size={18} /><p>{reply}</p><button aria-label="重新播报" onClick={() => speak(reply)}>重播</button></div>
+      <div className="voice-examples">
+        <button onClick={() => handleCommand('问小知，下面我要干嘛')}><ListTodo size={16} />播报接下来待办</button>
+        <button onClick={() => handleCommand('问小知，发布简单任务：明天带学生证')}><QrCode size={16} />发布示例任务</button>
+      </div>
+      <label className="voice-text-fallback">也可以输入指令<input value={transcript} onChange={event => setTranscript(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && transcript.trim()) handleCommand(transcript) }} placeholder="输入后按 Enter" /></label>
+      <footer><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>X</kbd><em>随时唤出小知</em></footer>
+    </section>
+  </div>
 }
 
 function NewTodo({ onClose, onSave }: { onClose: () => void; onSave: (t: Todo) => void }) {

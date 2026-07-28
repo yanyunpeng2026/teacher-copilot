@@ -81,6 +81,19 @@ app.get('/api/feedback', (_req, res) => {
   res.json({ feedback: readStore().feedback })
 })
 
+app.post('/api/voice/recognize', (_req, res) => {
+  if (process.platform !== 'win32') return res.status(501).json({ error: 'windows_only' })
+  execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'server', 'recognize-voice.ps1')], {
+    encoding: 'utf8',
+    timeout: 15000,
+    windowsHide: true
+  }, (error, stdout) => {
+    const text = stdout.trim()
+    if (error || !text) return res.status(422).json({ error: 'not_recognized' })
+    res.json({ text })
+  })
+})
+
 app.post('/api/feedback', (req, res) => {
   const feedback = req.body?.feedback
   if (!feedback?.id || !feedback?.taskId || !feedback?.student) return res.status(400).json({ error: 'invalid_feedback' })
