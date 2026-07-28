@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { AppData, Feedback, Student, Task, Todo } from './types'
 import { exportData, loadData, saveData } from './storage'
+import { detectSync, fetchFeedback, fetchTask, publishTask, submitFeedback, subscribeFeedback, type SyncState } from './sync'
 
 type Page = 'home' | 'class' | 'todos' | 'tasks' | 'materials' | 'career' | 'documents'
 type Toast = { text: string; kind?: 'ok' | 'info' }
@@ -61,16 +62,28 @@ function StudentTask() {
   const [values, setValues] = useState<Record<string, string>>({})
   const [identity, setIdentity] = useState({ student: '', studentNo: '' })
   const [resultQr, setResultQr] = useState('')
+  const [syncComplete, setSyncComplete] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    try {
+    async function load() {
       const params = new URLSearchParams(location.hash.split('?')[1])
+      const taskId = params.get('task')
       const value = params.get('data')
-      if (value) setPayload(decodePayload(value))
-    } catch {
-      setError('二维码内容已损坏，请联系老师重新发布。')
+      try {
+        if (taskId) {
+          const result = await fetchTask(taskId)
+          setPayload({ task: result.task })
+        } else if (value) {
+          setPayload(decodePayload(value))
+        } else {
+          throw new Error()
+        }
+      } catch {
+        setError('任务暂时无法读取。请确认手机与老师电脑连接同一 Wi‑Fi。')
+      }
     }
+    load()
   }, [])
 
   async function submit(e: React.FormEvent) {
@@ -81,8 +94,13 @@ function StudentTask() {
       studentNo: identity.studentNo.trim(), submitted: new Date().toLocaleString('zh-CN'),
       values
     }
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ v: 1, type: 'zhixu-feedback', feedback }))))
-    setResultQr(await QRCode.toDataURL(encoded, { width: 340, margin: 2, color: { dark: '#173f36', light: '#ffffff' } }))
+    try {
+      await submitFeedback(feedback)
+      setSyncComplete(true)
+    } catch {
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ v: 1, type: 'zhixu-feedback', feedback }))))
+      setResultQr(await QRCode.toDataURL(encoded, { width: 340, margin: 2, color: { dark: '#173f36', light: '#ffffff' } }))
+    }
   }
 
   if (error) return <div className="student-shell"><div className="student-card"><h1>无法打开任务</h1><p>{error}</p></div></div>
@@ -92,11 +110,19 @@ function StudentTask() {
     <div className="student-shell">
       <div className="student-brand"><span className="logo-mark"><BookOpen size={22} /></span><b>知序</b><em>学生任务</em></div>
       <main className="student-card">
-        {resultQr ? (
+        {syncComplete ? (
+          <div className="result-card">
+            <span className="success-icon pulse-success"><Check size={34} /></span>
+            <h1>已自动提交</h1>
+            <p>反馈已同步至老师的知序工作台，无需再出示二维码。</p>
+            <div className="sync-receipt"><CheckCircle2 size={20} /><div><b>老师端已接收</b><span>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div></div>
+            <div className="privacy-note"><ShieldCheck size={17} />仅在校园局域网内传输 · 未上传云端</div>
+          </div>
+        ) : resultQr ? (
           <div className="result-card">
             <span className="success-icon"><Check size={34} /></span>
             <h1>填写完成</h1>
-            <p>请将下方反馈码出示给老师扫描。信息只存在这个二维码中。</p>
+            <p>当前无法连接老师电脑，请将下方备用反馈码出示给老师扫描。</p>
             <img src={resultQr} alt="反馈二维码" />
             <div className="privacy-note"><ShieldCheck size={17} />未上传云端 · 关闭页面后内容自动清除</div>
           </div>
@@ -112,7 +138,7 @@ function StudentTask() {
             {task.fields.map((field, i) => (
               <label key={field}>{i + 1}. {field}<input required value={values[field] || ''} onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder={`请填写${field}`} /></label>
             ))}
-            <button className="primary submit-btn" type="submit"><QrCode size={18} />提交并生成反馈码</button>
+            <button className="primary submit-btn" type="submit"><CheckCircle2 size={18} />提交给老师</button>
           </form>
         )}
       </main>
@@ -129,9 +155,34 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [qrUrl, setQrUrl] = useState('')
   const [sidebar, setSidebar] = useState(false)
+  const [sync, setSync] = useState<SyncState>({ connected: false, origin: '', address: '' })
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => saveData(data), [data])
+  useEffect(() => {
+    let stop = () => {}
+    detectSync().then(async state => {
+      setSync(state)
+      if (!state.connected) return
+      const ingest = (feedback: Feedback) => setData(current => {
+        if (current.feedback.some(item => item.id === feedback.id)) return current
+        return {
+          ...current,
+          feedback: [feedback, ...current.feedback],
+          tasks: current.tasks.map(task => task.id === feedback.taskId ? { ...task, completed: Math.min(task.total, task.completed + 1) } : task)
+        }
+      })
+      try {
+        const existing = await fetchFeedback()
+        existing.feedback.slice().reverse().forEach(ingest)
+      } catch {
+        setSync({ connected: false, origin: '', address: '' })
+        return
+      }
+      stop = subscribeFeedback(ingest)
+    })
+    return () => stop()
+  }, [])
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 2500)
@@ -148,7 +199,15 @@ export default function App() {
   }
 
   async function showTaskQr(task: Task) {
-    const url = `${location.origin}${location.pathname}#/student?data=${encodeURIComponent(encodeTask(task))}`
+    let url = `${location.origin}${location.pathname}#/student?data=${encodeURIComponent(encodeTask(task))}`
+    if (sync.connected) {
+      try {
+        const result = await publishTask(task)
+        url = result.url
+      } catch {
+        setSync({ connected: false, origin: '', address: '' })
+      }
+    }
     setSelectedTask(task)
     setQrUrl(await QRCode.toDataURL(url, { width: 420, margin: 2, color: { dark: '#173f36', light: '#ffffff' }, errorCorrectionLevel: 'M' }))
     setModal('task-qr')
@@ -195,6 +254,7 @@ export default function App() {
           <button aria-label="打开菜单" className="menu-btn" onClick={() => setSidebar(true)}><Menu /></button>
           <div><span className="eyebrow">2026年7月28日 · 星期二</span><h1>{title}</h1></div>
           <div className="top-actions">
+            <div className={`sync-chip ${sync.connected ? 'online' : ''}`}><i />{sync.connected ? '局域网同步中' : '单机模式'}</div>
             <label className="search"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索学生、材料或待办" /></label>
             <button aria-label="通知" className="icon-btn alert"><Bell size={20} /><i /></button>
             <button className="primary" onClick={() => setModal('quick')}><Plus size={18} />快速新建</button>
@@ -220,7 +280,7 @@ export default function App() {
       {modal === 'new-todo' && <NewTodo onClose={() => setModal(null)} onSave={todo => { setData(d => ({ ...d, todos: [todo, ...d.todos] })); setModal(null); setToast({ text: '待办已添加', kind: 'ok' }) }} />}
       {modal === 'new-student' && <NewStudent onClose={() => setModal(null)} onSave={student => { setData(d => ({ ...d, students: [...d.students, student] })); setModal(null); setToast({ text: '学生已加入班级', kind: 'ok' }) }} />}
       {modal === 'new-task' && <NewTask total={data.students.length} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
-      {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><p>学生扫码即可离线填写。填写后会生成反馈码，由教师扫码回收。</p><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
+      {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><div className={`qr-sync-state ${sync.connected ? 'online' : ''}`}><span><i />{sync.connected ? '自动回收已开启' : '当前为单机备用模式'}</span><small>{sync.connected ? `学生提交后自动同步至本机 · ${sync.address}` : '启动 Windows 本地服务后可免二次扫码'}</small></div><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
       {modal === 'feedback' && <FeedbackImport onClose={() => setModal(null)} onImport={feedback => { const exists = data.feedback.some(f => f.id === feedback.id); if (!exists) setData(d => ({ ...d, feedback: [feedback, ...d.feedback], tasks: d.tasks.map(t => t.id === feedback.taskId ? { ...t, completed: Math.min(t.total, t.completed + 1) } : t) })); setModal(null); setToast({ text: exists ? '这份反馈已收录' : `已收录 ${feedback.student} 的反馈`, kind: 'ok' }) }} />}
       {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
       {modal === 'import-students' && <ImportStudents onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
