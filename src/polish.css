@@ -285,6 +285,15 @@ tbody tr:hover{background:#f7f9f6}
 @keyframes mascotFloat{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-7px) rotate(1deg)}}
 @keyframes bubblePop{from{opacity:0;transform:translateY(7px) scale(.92)}to{opacity:1;transform:none}}
 @keyframes softGlow{0%,100%{opacity:.45;transform:scale(.95)}50%{opacity:.75;transform:scale(1.04)}}
+@keyframes mascotRoam{
+  0%,7%{opacity:0;transform:translate3d(90px,18px,0) rotate(8deg)}
+  11%,23%{opacity:1;transform:translate3d(0,0,0) rotate(-3deg)}
+  28%{transform:translate3d(-24vw,-8px,0) rotate(4deg)}
+  36%,48%{transform:translate3d(-42vw,0,0) rotate(-4deg)}
+  53%{transform:translate3d(-62vw,-10px,0) rotate(3deg)}
+  61%,68%{opacity:1;transform:translate3d(-74vw,0,0) rotate(-2deg)}
+  75%,100%{opacity:0;transform:translate3d(-92vw,18px,0) rotate(-8deg)}
+}
 
 @media(max-width:1100px){
   .sync-chip{display:none}
@@ -334,13 +343,13 @@ tbody tr:hover{background:#f7f9f6}
   }
   .mobile-greeting{
     position:relative;
-    min-height:226px;
+    min-height:150px;
     overflow:hidden;
     border:1px solid rgba(255,255,255,.9);
     border-radius:28px;
     padding:22px 18px;
     background:
-      radial-gradient(circle at 91% 15%,rgba(255,224,155,.68),transparent 125px),
+      radial-gradient(circle at 91% 15%,rgba(255,224,155,.68),transparent 105px),
       radial-gradient(circle at 5% 105%,rgba(196,235,218,.88),transparent 170px),
       linear-gradient(145deg,#fffaf0 0%,#fffdf8 52%,#eef9f3 100%);
     box-shadow:0 18px 45px rgba(70,92,77,.1),inset 0 1px #fff;
@@ -357,31 +366,12 @@ tbody tr:hover{background:#f7f9f6}
     background:rgba(130,202,170,.16);
     animation:softGlow 5s ease-in-out infinite;
   }
-  .mobile-greeting-copy{position:relative;z-index:2;width:59%}
+  .mobile-greeting-copy{position:relative;z-index:2;width:82%}
   .mobile-date{display:inline-flex;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.72);color:#7e8173;font-size:10px;font-weight:600}
   .mobile-greeting h2{margin:13px 0 7px;font-size:23px;line-height:1.25;letter-spacing:-.8px}
   .mobile-greeting h2 i{font-style:normal;font-size:20px}
   .mobile-greeting p{margin:0;color:#6c7b74;font-size:11px;line-height:1.75}
-  .mascot-button{position:absolute;z-index:2;right:-5px;bottom:-8px;width:48%;height:206px;padding:0;border:0;background:transparent}
-  .mascot-button img{position:absolute;right:-2px;bottom:0;width:158px;height:158px;object-fit:contain;filter:drop-shadow(0 13px 12px rgba(40,91,69,.15));animation:mascotFloat 4s ease-in-out infinite}
-  .mascot-bubble{
-    position:absolute;
-    z-index:2;
-    top:10px;
-    right:9px;
-    width:116px;
-    padding:9px 10px;
-    border:1px solid rgba(213,224,216,.8);
-    border-radius:16px 16px 4px 16px;
-    background:rgba(255,255,255,.94);
-    box-shadow:0 9px 24px rgba(58,82,70,.09);
-    color:#738078;
-    font-size:9px;
-    line-height:1.45;
-    text-align:left;
-    animation:bubblePop .5s .22s cubic-bezier(.2,.85,.3,1.2) both;
-  }
-  .mascot-bubble b{color:#24725d;font-size:10px}
+  .greeting-tip{position:absolute;right:17px;bottom:17px;display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.76);color:#66857b;font-size:9px;font-weight:600}
   .today-glance{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;animation:pageRise .45s .05s both}
   .glance-card{
     min-width:0;
@@ -440,6 +430,19 @@ tbody tr:hover{background:#f7f9f6}
   .flow-row b,.flow-row small{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .flow-row b{font-size:11px}.flow-row small{margin-top:2px;color:#9aa49f;font-size:8px}
   .flow-arrow{color:#a8b4af;font-size:20px}
+  .class-head{margin-top:8px}
+  .mobile-classes{display:grid;grid-auto-flow:column;grid-auto-columns:72%;gap:10px;overflow-x:auto;margin:0 -13px;padding:2px 13px 8px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .mobile-classes::-webkit-scrollbar{display:none}
+  .mobile-class-card{scroll-snap-align:start;padding:15px;border:1px solid rgba(255,255,255,.9);border-radius:21px;text-align:left;box-shadow:0 11px 28px rgba(43,70,58,.065)}
+  .mobile-class-card.mint{background:linear-gradient(145deg,#e8f7f0,#fbfdfa)}
+  .mobile-class-card.coral{background:linear-gradient(145deg,#fff0e9,#fffaf7)}
+  .mobile-class-card.violet{background:linear-gradient(145deg,#f0edfb,#fbfaff)}
+  .class-card-top{display:flex;align-items:center;justify-content:space-between;color:#43816e}
+  .class-card-top span{padding:4px 7px;border-radius:999px;background:rgba(255,255,255,.68);font-size:8px;font-weight:700}
+  .mobile-class-card.coral .class-card-top{color:#bf7058}.mobile-class-card.violet .class-card-top{color:#7468a8}
+  .mobile-class-card h3{margin:13px 0 4px;font-size:16px;letter-spacing:-.4px}
+  .mobile-class-card p{margin:0;color:#778a82;font-size:9px}
+  .mobile-class-card footer{display:flex;align-items:center;gap:5px;margin-top:13px;padding-top:10px;border-top:1px solid rgba(126,155,142,.14);color:#6d8179;font-size:9px}
   .class-pulse{
     padding:17px;
     border:1px solid rgba(208,226,217,.85);
@@ -470,6 +473,21 @@ tbody tr:hover{background:#f7f9f6}
   .mobile-quick b,.mobile-quick small{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .mobile-quick b{font-size:10px}.mobile-quick small{margin-top:3px;color:#9aa49f;font-size:7px}
   .mobile-quote{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0 4px;color:#8b9a93;font-size:10px}
+  .mascot-roamer{
+    position:fixed;
+    z-index:33;
+    right:-6px;
+    bottom:calc(64px + env(safe-area-inset-bottom));
+    width:74px;
+    height:70px;
+    padding:0;
+    border:0;
+    background:transparent;
+    filter:drop-shadow(0 8px 10px rgba(51,92,75,.16));
+    animation:mascotRoam 17s 2s cubic-bezier(.42,0,.3,1) infinite;
+  }
+  .mascot-roamer img{position:absolute;right:0;bottom:0;width:70px;height:70px;object-fit:contain}
+  .mascot-roamer span{position:absolute;z-index:2;right:50px;top:2px;width:max-content;padding:5px 7px;border:1px solid #e1e9e3;border-radius:10px 10px 2px 10px;background:rgba(255,255,255,.94);color:#397763;font-size:8px;font-weight:700;box-shadow:0 5px 12px rgba(44,78,65,.08)}
 }
 
 @media(max-width:520px){
@@ -508,4 +526,5 @@ tbody tr:hover{background:#f7f9f6}
 
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .mascot-roamer{opacity:1;transform:none;animation:none!important}
 }

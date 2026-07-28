@@ -327,11 +327,16 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
   const next = pending[0]
   const task = data.tasks[0]
   const progress = task ? Math.round(task.completed / task.total * 100) : 0
-  const mascot = `${import.meta.env.BASE_URL}mascot/xiaoxin.webp`
+  const mascot = `${import.meta.env.BASE_URL}mascot/xiaoxin-peek.webp`
   const glance = [
     { value: pending.length, label: '待办', note: '1项紧急', className: 'coral' },
     { value: '14:30', label: '下一日程', note: '年级教研', className: 'violet' },
     { value: `${progress}%`, label: '任务回收', note: task ? `${task.completed}/${task.total}人` : '暂无任务', className: 'mint' }
+  ]
+  const classes = [
+    { name: '高一（3）班', role: '班主任', students: data.students.length, next: '班会 · 周五 15:30', tone: 'mint' },
+    { name: '高一（1）班', role: '数学教学', students: 45, next: '下节课 · 10:10', tone: 'coral' },
+    { name: '高一（2）班', role: '数学教学', students: 44, next: '明天 · 08:00', tone: 'violet' }
   ]
 
   return <div className="mobile-today">
@@ -341,10 +346,7 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
         <h2>下午好，江老师 <i>☀</i></h2>
         <p>今天的事情都在这里，我陪你从容完成。</p>
       </div>
-      <button className="mascot-button" onClick={onVoice} aria-label="和小昕说话">
-        <span className="mascot-bubble">嗨，我是小昕<br /><b>点我就能说话</b></span>
-        <img src={mascot} alt="小昕，一只可爱的小龙人助手" />
-      </button>
+      <div className="greeting-tip"><Sparkles size={14} /><span>先处理最紧急的一件事</span></div>
     </section>
 
     <section className="today-glance" aria-label="今日一览">
@@ -371,6 +373,16 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
       </button>)}
     </section>
 
+    <div className="today-section-head class-head"><div><span>CLASSROOMS</span><h3>我的班级</h3></div><button onClick={() => setPage('class')}>班级管理</button></div>
+    <section className="mobile-classes">
+      {classes.map((item, index) => <button className={`mobile-class-card ${item.tone}`} key={item.name} onClick={() => setPage('class')}>
+        <div className="class-card-top"><span>{index === 0 ? '当前班级' : item.role}</span><Users size={18} /></div>
+        <h3>{item.name}</h3>
+        <p>{index === 0 ? `${item.role} · ${item.students} 位学生` : `${item.students} 位学生`}</p>
+        <footer><Clock3 size={13} />{item.next}</footer>
+      </button>)}
+    </section>
+
     {task && <section className="class-pulse" onClick={() => setPage('tasks')}>
       <div className="pulse-head"><div><span>班级动态</span><h3>{task.title}</h3></div><strong>{progress}%</strong></div>
       <div className="pulse-track"><i style={{ width: `${progress}%` }} /></div>
@@ -385,6 +397,10 @@ function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
       <button onClick={onTodo}><span className="quick-icon todo"><Plus /></span><b>添加待办</b><small>一句话记下</small></button>
     </section>
     <p className="mobile-quote"><Sparkles size={15} /> 今天也已经做得很好了</p>
+    <button className="mascot-roamer" onClick={onVoice} aria-label="小昕在这里，点击开始语音">
+      <span>问小昕</span>
+      <img src={mascot} alt="探头的小昕" />
+    </button>
   </div>
 }
 
