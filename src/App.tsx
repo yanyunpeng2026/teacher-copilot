@@ -283,6 +283,15 @@ export default function App() {
           {page === 'documents' && <Documents notify={text => setToast({ text, kind: 'ok' })} />}
         </div>
       </main>
+      <nav className="mobile-bottom-nav" aria-label="手机端主导航">
+        {([
+          ['home', '首页', LayoutDashboard],
+          ['class', '班级', Users],
+          ['tasks', '任务', QrCode],
+          ['todos', '待办', ListTodo]
+        ] as const).map(([id, label, Icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span>{id === 'todos' && data.todos.some(todo => !todo.done) && <i />}</button>)}
+        <button onClick={() => setSidebar(true)}><Menu size={21} /><span>更多</span></button>
+      </nav>
       {toast && <div className={`toast ${toast.kind || ''}`}><CheckCircle2 size={18} />{toast.text}</div>}
       <button className="voice-fab" aria-label="问小知语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
       {voiceOpen && <VoiceAssistant todos={data.todos} total={data.students.length} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
@@ -402,6 +411,15 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
   const [listening, setListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [reply, setReply] = useState('我在。你可以问我接下来要做什么，或直接发布简单任务。')
+  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [voicePrefs, setVoicePrefs] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('zhixu_voice_settings_v1') || '') as { voiceURI: string; rate: number; pitch: number }
+    } catch {
+      return { voiceURI: '', rate: .96, pitch: 1 }
+    }
+  })
   const recognitionRef = useRef<VoiceRecognition | null>(null)
   const voiceApi = window as typeof window & { SpeechRecognition?: VoiceRecognitionCtor; webkitSpeechRecognition?: VoiceRecognitionCtor }
   const Recognition = voiceApi.SpeechRecognition || voiceApi.webkitSpeechRecognition
@@ -411,13 +429,37 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
     speechSynthesis.cancel()
   }, [])
 
+  useEffect(() => {
+    const refresh = () => {
+      const available = speechSynthesis.getVoices().slice().sort((a, b) => {
+        const aZh = a.lang.toLowerCase().startsWith('zh') ? 0 : 1
+        const bZh = b.lang.toLowerCase().startsWith('zh') ? 0 : 1
+        return aZh - bZh || a.name.localeCompare(b.name, 'zh-CN')
+      })
+      setVoices(available)
+      if (!voicePrefs.voiceURI) {
+        const preferred = available.find(voice => voice.lang.toLowerCase().startsWith('zh-cn')) || available.find(voice => voice.lang.toLowerCase().startsWith('zh'))
+        if (preferred) setVoicePrefs(current => ({ ...current, voiceURI: preferred.voiceURI }))
+      }
+    }
+    refresh()
+    speechSynthesis.addEventListener('voiceschanged', refresh)
+    return () => speechSynthesis.removeEventListener('voiceschanged', refresh)
+  }, [voicePrefs.voiceURI])
+
+  useEffect(() => {
+    localStorage.setItem('zhixu_voice_settings_v1', JSON.stringify(voicePrefs))
+  }, [voicePrefs])
+
   function speak(text: string) {
     speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = 'zh-CN'
-    utterance.rate = .96
-    const chineseVoice = speechSynthesis.getVoices().find(voice => voice.lang.toLowerCase().startsWith('zh'))
-    if (chineseVoice) utterance.voice = chineseVoice
+    utterance.rate = voicePrefs.rate
+    utterance.pitch = voicePrefs.pitch
+    const selected = voices.find(voice => voice.voiceURI === voicePrefs.voiceURI)
+    const chineseVoice = voices.find(voice => voice.lang.toLowerCase().startsWith('zh'))
+    if (selected || chineseVoice) utterance.voice = selected || chineseVoice!
     speechSynthesis.speak(utterance)
   }
 
@@ -536,13 +578,22 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
 
   return <div className="voice-backdrop" onMouseDown={onClose}>
     <section className="voice-sheet" onMouseDown={event => event.stopPropagation()}>
-      <header><div className="xiaozhi-mark"><Sparkles size={20} /></div><div><b>问小知</b><span>本地语音工作助手</span></div><button aria-label="关闭语音助手" onClick={onClose}><X size={19} /></button></header>
+      <header><div className="xiaozhi-mark"><Sparkles size={20} /></div><div><b>问小知</b><span>本地语音工作助手</span></div><button aria-label="语音播报设置" className={voiceSettingsOpen ? 'active' : ''} onClick={() => setVoiceSettingsOpen(value => !value)}><Settings size={18} /></button><button aria-label="关闭语音助手" onClick={onClose}><X size={19} /></button></header>
       <div className={`voice-orb ${listening ? 'listening' : ''}`}>
         <button aria-label={listening ? '正在聆听' : '开始语音输入'} onClick={startListening}><Mic size={30} /></button>
         {listening && <><i /><i /><i /></>}
       </div>
       <div className="voice-status"><b>{listening ? '正在聆听…' : '点击麦克风，然后说话'}</b><span>{transcript || '“问小知，下面我要干嘛？”'}</span></div>
       <div className="voice-reply"><Volume2 size={18} /><p>{reply}</p><button aria-label="重新播报" onClick={() => speak(reply)}>重播</button></div>
+      {voiceSettingsOpen && <div className="voice-settings">
+        <div className="voice-settings-title"><div><b>播报声音</b><span>使用设备中已安装的系统人声</span></div><button onClick={() => speak('你好，我是小知。接下来由我陪你处理今天的工作。')}><Volume2 size={15} />试听</button></div>
+        <label>选择人声<select value={voicePrefs.voiceURI} onChange={event => setVoicePrefs({ ...voicePrefs, voiceURI: event.target.value })}>{voices.length ? voices.map(voice => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>) : <option value="">系统默认中文人声</option>}</select></label>
+        <div className="voice-range-grid">
+          <label><span>语速 <em>{voicePrefs.rate.toFixed(1)}×</em></span><input type="range" min=".6" max="1.4" step=".1" value={voicePrefs.rate} onChange={event => setVoicePrefs({ ...voicePrefs, rate: Number(event.target.value) })} /></label>
+          <label><span>音调 <em>{voicePrefs.pitch.toFixed(1)}</em></span><input type="range" min=".7" max="1.3" step=".1" value={voicePrefs.pitch} onChange={event => setVoicePrefs({ ...voicePrefs, pitch: Number(event.target.value) })} /></label>
+        </div>
+        <p><ShieldCheck size={14} />人声设置仅保存在当前设备</p>
+      </div>}
       <div className="voice-examples">
         <button onClick={() => handleCommand('问小知，下面我要干嘛')}><ListTodo size={16} />播报接下来待办</button>
         <button onClick={() => handleCommand('问小知，发布简单任务：明天带学生证')}><QrCode size={16} />发布示例任务</button>
