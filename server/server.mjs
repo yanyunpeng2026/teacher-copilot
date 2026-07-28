@@ -56,7 +56,7 @@ function broadcast(payload) {
 }
 
 const app = express()
-app.use(express.json({ limit: '2mb' }))
+app.use(express.json({ limit: '15mb' }))
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, mode: 'lan', address: localAddress(), port, origin: `http://${localAddress()}:${port}/teacher-copilot/` })

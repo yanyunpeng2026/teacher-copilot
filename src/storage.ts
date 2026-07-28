@@ -7,7 +7,14 @@ export function loadData(): AppData {
   const value = localStorage.getItem(KEY)
   if (!value) return initialData
   try {
-    return JSON.parse(value) as AppData
+    const parsed = JSON.parse(value) as Partial<AppData>
+    return {
+      ...initialData,
+      ...parsed,
+      classes: parsed.classes?.length ? parsed.classes : initialData.classes,
+      profile: { ...initialData.profile, ...parsed.profile },
+      directories: parsed.directories?.length ? parsed.directories : initialData.directories
+    }
   } catch {
     return initialData
   }

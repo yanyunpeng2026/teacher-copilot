@@ -8,9 +8,10 @@ import {
   Mic, Plus, QrCode, ScanLine, Search, Settings, ShieldCheck, Sparkles, Star,
   Upload, UserPlus, Users, Volume2, WandSparkles, X
 } from 'lucide-react'
-import type { AppData, Feedback, Student, Task, Todo } from './types'
+import type { AppData, Feedback, SchoolClass, Student, Task, TeacherProfile, Todo } from './types'
 import { exportData, loadData, saveData } from './storage'
 import { detectSync, fetchFeedback, fetchTask, publishTask, submitFeedback, subscribeFeedback, type SyncState } from './sync'
+import { storeLocalFile } from './fileStore'
 
 type Page = 'home' | 'class' | 'todos' | 'tasks' | 'materials' | 'career' | 'documents'
 type Toast = { text: string; kind?: 'ok' | 'info' }
@@ -19,8 +20,8 @@ const nav = [
   { id: 'home', label: '工作台', icon: LayoutDashboard },
   { id: 'class', label: '班级与学生', icon: Users },
   { id: 'todos', label: '待办与日程', icon: ListTodo },
-  { id: 'tasks', label: '扫码任务', icon: QrCode },
-  { id: 'materials', label: '材料库', icon: FolderOpen },
+  { id: 'tasks', label: '发布中心', icon: QrCode },
+  { id: 'materials', label: '资料文档库', icon: FolderOpen },
   { id: 'career', label: '职称助手', icon: Award },
   { id: 'documents', label: '文档工具', icon: FileText }
 ] as const
@@ -103,6 +104,25 @@ function StudentTask() {
     }
   }
 
+  function selectImage(field: string, file?: File) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const image = new Image()
+      image.onload = () => {
+        const scale = Math.min(1, 1400 / Math.max(image.width, image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(image.width * scale)
+        canvas.height = Math.round(image.height * scale)
+        canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+        setValues(current => ({ ...current, [field]: canvas.toDataURL('image/jpeg', .78) }))
+      }
+      image.onerror = () => setValues(current => ({ ...current, [field]: String(reader.result) }))
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  }
+
   if (error) return <div className="student-shell"><div className="student-card"><h1>无法打开任务</h1><p>{error}</p></div></div>
   if (!payload) return <div className="student-shell"><div className="student-card">正在读取任务…</div></div>
   const task = payload.task
@@ -136,7 +156,7 @@ function StudentTask() {
               <label>学号<input required value={identity.studentNo} onChange={e => setIdentity({ ...identity, studentNo: e.target.value })} placeholder="请输入学号" inputMode="numeric" /></label>
             </div>
             {task.fields.map((field, i) => (
-              <label key={field}>{i + 1}. {field}<input required value={values[field] || ''} onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder={`请填写${field}`} /></label>
+              <label key={field}>{i + 1}. {field}{field.includes('图片') || field.includes('照片') ? <><input required type="file" accept="image/*" capture="environment" onChange={event => selectImage(field, event.target.files?.[0])} />{values[field] && <span className="image-ready"><Check size={14} />图片已准备，提交后自动同步</span>}</> : <input required value={values[field] || ''} onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder={`请填写${field}`} />}</label>
             ))}
             <button className="primary submit-btn" type="submit"><CheckCircle2 size={18} />提交给老师</button>
           </form>
@@ -157,9 +177,12 @@ export default function App() {
   const [sidebar, setSidebar] = useState(false)
   const [sync, setSync] = useState<SyncState>({ connected: false, origin: '', address: '' })
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [teacherMenu, setTeacherMenu] = useState(false)
+  const [activeClassId, setActiveClassId] = useState(() => localStorage.getItem('zhixin_active_class') || 'c1')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => saveData(data), [data])
+  useEffect(() => localStorage.setItem('zhixin_active_class', activeClassId), [activeClassId])
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'x') {
@@ -204,6 +227,7 @@ export default function App() {
 
   const todayDone = data.todos.filter(t => t.done).length
   const filteredStudents = data.students.filter(s => `${s.name}${s.number}${s.tags.join('')}`.includes(search))
+  const activeClass = data.classes.find(item => item.id === activeClassId) || data.classes[0]
 
   function updateTodo(id: string) {
     setData(d => ({ ...d, todos: d.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) }))
@@ -232,7 +256,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(String(reader.result)) as AppData
         if (!parsed.students || !parsed.todos || !parsed.tasks) throw new Error()
-        setData(parsed)
+        setData(current => ({
+          ...current,
+          ...parsed,
+          classes: parsed.classes?.length ? parsed.classes : current.classes,
+          profile: parsed.profile || current.profile,
+          directories: parsed.directories?.length ? parsed.directories : current.directories
+        }))
         setToast({ text: '本地备份已恢复', kind: 'ok' })
       } catch {
         setToast({ text: '文件格式无法识别' })
@@ -247,8 +277,15 @@ export default function App() {
     <div className={`app page-${page}`}>
       <aside className={sidebar ? 'sidebar open' : 'sidebar'}>
         <div className="brand"><span className="logo-mark"><BookOpen size={22} /></span><div><b>知昕</b><small>教师工作台</small></div><button aria-label="关闭菜单" className="sidebar-close" onClick={() => setSidebar(false)}><X /></button></div>
-        <div className="teacher-mini">
-          <div className="avatar">江</div><div><b>江老师</b><span>高一（3）班 · 班主任</span></div><ChevronDown size={16} />
+        <div className="teacher-switcher">
+          <button className={`teacher-mini ${teacherMenu ? 'open' : ''}`} onClick={() => setTeacherMenu(value => !value)}>
+            <div className="avatar">{data.profile.name.slice(0, 1)}</div><div><b>{data.profile.name}</b><span>{activeClass?.name || '暂未选择班级'} · {activeClass?.role || data.profile.title}</span></div><ChevronDown size={16} />
+          </button>
+          {teacherMenu && <div className="teacher-dropdown">
+            <header><span>切换工作班级</span><small>{data.profile.school}</small></header>
+            {data.classes.map(item => <button className={item.id === activeClass?.id ? 'active' : ''} key={item.id} onClick={() => { setActiveClassId(item.id); setTeacherMenu(false) }}><span>{item.name.match(/\d+/g)?.slice(-1)[0] || '班'}</span><div><b>{item.name}</b><small>{item.subject} · {item.role}</small></div>{item.id === activeClass?.id && <Check size={15} />}</button>)}
+            <footer><button onClick={() => { setTeacherMenu(false); setModal('new-class') }}><Plus size={16} />添加班级</button><button onClick={() => { setTeacherMenu(false); setModal('profile') }}><CircleUserRound size={16} />个人信息设置</button></footer>
+          </div>}
         </div>
         <nav>
           <span className="nav-label">工作空间</span>
@@ -259,7 +296,7 @@ export default function App() {
           <button onClick={() => setModal('settings')}><Settings size={18} />设置与备份</button>
         </div>
       </aside>
-      <div className="sidebar-scrim" onClick={() => setSidebar(false)} />
+      <div className="sidebar-scrim" onClick={() => { setSidebar(false); setTeacherMenu(false) }} />
       <main className="main">
         <header className="topbar">
           <button aria-label="打开菜单" className="menu-btn" onClick={() => setSidebar(true)}><Menu /></button>
@@ -276,12 +313,12 @@ export default function App() {
         <div className="content">
           {page === 'home' && <>
             <div className="desktop-home"><Home data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
-            <div className="mobile-home"><MobileHome data={data} setPage={setPage} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} /></div>
+            <div className="mobile-home"><MobileHome data={data} activeClassId={activeClass?.id || ''} setPage={setPage} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} onAddClass={() => setModal('new-class')} /></div>
           </>}
-          {page === 'class' && <Classroom students={filteredStudents} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
+          {page === 'class' && <Classroom students={filteredStudents} classes={data.classes} activeClassId={activeClass?.id || ''} onClassChange={setActiveClassId} onAddClass={() => setModal('new-class')} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
           {page === 'tasks' && <Tasks data={data} onNew={() => setModal('new-task')} onQr={showTaskQr} onScan={() => setModal('feedback')} />}
-          {page === 'materials' && <Materials data={data} setData={setData} onUpload={() => setModal('upload-material')} />}
+          {page === 'materials' && <Materials data={data} setData={setData} />}
           {page === 'career' && <Career />}
           {page === 'documents' && <Documents notify={text => setToast({ text, kind: 'ok' })} />}
         </div>
@@ -300,27 +337,31 @@ export default function App() {
       {voiceOpen && <VoiceAssistant todos={data.todos} total={data.students.length} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
 
       {modal === 'quick' && <Modal title="快速新建" onClose={() => setModal(null)}><div className="quick-grid">
-        {[['新建待办', ListTodo, 'new-todo'], ['发布扫码任务', QrCode, 'new-task'], ['添加学生', UserPlus, 'new-student'], ['导入材料', Upload, 'upload-material']].map(([label, Icon, key]) => <button key={String(key)} onClick={() => setModal(String(key))}><Icon size={24} /><b>{String(label)}</b><span>立即开始</span></button>)}
+        {[['新建待办', ListTodo, 'new-todo'], ['发布扫码任务', QrCode, 'new-task'], ['添加班级', Users, 'new-class'], ['上传资料文档', Upload, 'go-materials']].map(([label, Icon, key]) => <button key={String(key)} onClick={() => { if (key === 'go-materials') { setPage('materials'); setModal(null) } else setModal(String(key)) }}><Icon size={24} /><b>{String(label)}</b><span>立即开始</span></button>)}
       </div></Modal>}
 
       {modal === 'new-todo' && <NewTodo onClose={() => setModal(null)} onSave={todo => { setData(d => ({ ...d, todos: [todo, ...d.todos] })); setModal(null); setToast({ text: '待办已添加', kind: 'ok' }) }} />}
       {modal === 'new-student' && <NewStudent onClose={() => setModal(null)} onSave={student => { setData(d => ({ ...d, students: [...d.students, student] })); setModal(null); setToast({ text: '学生已加入班级', kind: 'ok' }) }} />}
+      {modal === 'new-class' && <NewClass onClose={() => setModal(null)} onSave={schoolClass => { setData(d => ({ ...d, classes: [...d.classes, schoolClass] })); setActiveClassId(schoolClass.id); setModal(null); setToast({ text: `${schoolClass.name}已添加`, kind: 'ok' }) }} />}
+      {modal === 'profile' && <ProfileSettings profile={data.profile} onClose={() => setModal(null)} onSave={profile => { setData(d => ({ ...d, profile })); setModal(null); setToast({ text: '个人信息已保存', kind: 'ok' }) }} />}
       {modal === 'new-task' && <NewTask total={data.students.length} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
       {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><div className={`qr-sync-state ${sync.connected ? 'online' : ''}`}><span><i />{sync.connected ? '自动回收已开启' : '当前为单机备用模式'}</span><small>{sync.connected ? `学生提交后自动同步至本机 · ${sync.address}` : '启动 Windows 本地服务后可免二次扫码'}</small></div><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
       {modal === 'feedback' && <FeedbackImport onClose={() => setModal(null)} onImport={feedback => { const exists = data.feedback.some(f => f.id === feedback.id); if (!exists) setData(d => ({ ...d, feedback: [feedback, ...d.feedback], tasks: d.tasks.map(t => t.id === feedback.taskId ? { ...t, completed: Math.min(t.total, t.completed + 1) } : t) })); setModal(null); setToast({ text: exists ? '这份反馈已收录' : `已收录 ${feedback.student} 的反馈`, kind: 'ok' }) }} />}
-      {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
+      {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => setModal('profile')}><CircleUserRound size={19} /><span><b>个人信息设置</b><small>姓名、学校、任教学科和关怀寄语</small></span></button><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
       {modal === 'import-students' && <ImportStudents onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
       {modal === 'upload-material' && <UploadMaterial onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '材料索引已保存', kind: 'ok' }) }} />}
     </div>
   )
 }
 
-function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
+function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAddClass }: {
   data: AppData
+  activeClassId: string
   setPage: (p: Page) => void
   onQr: () => void
   onVoice: () => void
   onTodo: () => void
+  onAddClass: () => void
 }) {
   const pending = data.todos.filter(todo => !todo.done)
   const next = pending[0]
@@ -328,8 +369,8 @@ function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
   const progress = task ? Math.round(task.completed / task.total * 100) : 0
   const careStates = [
     { id: 'water', title: '喝口温水吧', text: '忙碌的时候，也别忘了照顾自己。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-water.webp` },
-    { id: 'stretch', title: '起来伸展一下', text: '站起来活动肩颈，眼睛也休息一会儿。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-stretch.webp` },
-    { id: 'care', title: '心情最重要', text: '事情慢慢做就好，你已经很认真了。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-care.webp` }
+    { id: 'stretch', title: '起来伸展一下', text: '活动肩颈，让眼睛也休息一会儿。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-stretch.webp` },
+    { id: 'care', title: '心情最重要', text: '事情慢慢做，你已经很认真了。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-care.webp` }
   ]
   const [careIndex, setCareIndex] = useState(0)
   useEffect(() => {
@@ -342,18 +383,13 @@ function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
     { value: '14:30', label: '下一日程', note: '年级教研', className: 'violet' },
     { value: `${progress}%`, label: '任务回收', note: task ? `${task.completed}/${task.total}人` : '暂无任务', className: 'mint' }
   ]
-  const classes = [
-    { name: '高一（3）班', role: '班主任', students: data.students.length, next: '班会 · 周五 15:30', tone: 'mint' },
-    { name: '高一（1）班', role: '数学教学', students: 45, next: '下节课 · 10:10', tone: 'coral' },
-    { name: '高一（2）班', role: '数学教学', students: 44, next: '明天 · 08:00', tone: 'violet' }
-  ]
 
   return <div className="mobile-today">
     <section className="mobile-greeting">
       <div className="mobile-greeting-copy">
         <span className="mobile-date">7月28日 · 星期二</span>
-        <h2>下午好，江老师 <i>☀</i></h2>
-        <p>先照顾好自己，再从容照顾好每个孩子。</p>
+        <h2>下午好，{data.profile.name} <i>☀</i></h2>
+        <p>{data.profile.motto}</p>
       </div>
       <div className="greeting-tip"><Sparkles size={14} /><span>今日心情 · 平静</span></div>
     </section>
@@ -364,20 +400,17 @@ function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
       <div><span>☺</span><b>平静</b><small>今日心情</small></div>
     </section>
 
-    <section className={`care-companion care-${activeCare.id}`} aria-live="polite">
-      <div className="care-copy"><span>小昕的关怀提醒</span><h3>{activeCare.title}</h3><p>{activeCare.text}</p></div>
-      <div className="pet-stage" aria-hidden="true">
-        {careStates.map((state, index) => <img key={state.id} className={index === careIndex ? `active pet-${state.id}` : ''} src={state.image} alt="" />)}
-      </div>
-      <div className="care-dots">{careStates.map((state, index) => <i className={index === careIndex ? 'active' : ''} key={state.id} />)}</div>
-    </section>
-
     <section className="today-glance" aria-label="今日一览">
       {glance.map(item => <button key={item.label} className={`glance-card ${item.className}`} onClick={() => item.label === '待办' ? setPage('todos') : item.label === '任务回收' ? setPage('tasks') : undefined}>
-        <strong>{item.value}</strong>
-        <span>{item.label}</span>
-        <small>{item.note}</small>
+        <strong>{item.value}</strong><span>{item.label}</span><small>{item.note}</small>
       </button>)}
+    </section>
+
+    <section className="mobile-quick">
+      <button onClick={onVoice}><span className="quick-icon voice"><Mic /></span><b>问小昕</b><small>语音来处理</small></button>
+      <button onClick={onQr}><span className="quick-icon qr"><QrCode /></span><b>发布任务</b><small>生成二维码</small></button>
+      <button onClick={onTodo}><span className="quick-icon todo"><Plus /></span><b>添加待办</b><small>一句话记下</small></button>
+      <button onClick={() => setPage('class')}><span className="quick-icon class"><Users /></span><b>班级管理</b><small>{data.classes.length} 个班级</small></button>
     </section>
 
     <div className="today-section-head"><div><span>现在</span><h3>下一件事</h3></div><button onClick={() => setPage('todos')}>全部待办</button></div>
@@ -387,22 +420,20 @@ function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
       <span className="next-open">›</span>
     </section> : <section className="next-card all-done"><CheckCircle2 /><div><h3>今天的待办完成啦</h3><p>可以安心喝口水，休息一下。</p></div></section>}
 
-    <section className="today-flow">
-      {pending.slice(1, 4).map((todo, index) => <button key={todo.id} className="flow-row" onClick={() => setPage('todos')}>
-        <span className={`flow-dot dot-${index}`} />
-        <time>{todo.date === '今天' ? todo.time : todo.date}</time>
-        <div><b>{todo.title}</b><small>{todo.source}</small></div>
-        <span className="flow-arrow">›</span>
-      </button>)}
-    </section>
-
     <div className="today-section-head class-head"><div><span>CLASSROOMS</span><h3>我的班级</h3></div><button onClick={() => setPage('class')}>班级管理</button></div>
     <section className="mobile-classes">
-      {classes.map((item, index) => <button className={`mobile-class-card ${item.tone}`} key={item.name} onClick={() => setPage('class')}>
-        <div className="class-card-top"><span>{index === 0 ? '当前班级' : item.role}</span><Users size={18} /></div>
-        <h3>{item.name}</h3>
-        <p>{index === 0 ? `${item.role} · ${item.students} 位学生` : `${item.students} 位学生`}</p>
+      {data.classes.map((item, index) => <button className={`mobile-class-card ${['mint', 'coral', 'violet'][index % 3]} ${item.id === activeClassId ? 'active' : ''}`} key={item.id} onClick={() => setPage('class')}>
+        <div className="class-card-top"><span>{item.id === activeClassId ? '当前班级' : item.role}</span><Users size={18} /></div>
+        <h3>{item.name}</h3><p>{item.subject} · {item.studentCount} 位学生</p>
         <footer><Clock3 size={13} />{item.next}</footer>
+      </button>)}
+      <button className="mobile-class-card add-class-card" onClick={onAddClass}><span><Plus size={22} /></span><h3>添加班级</h3><p>建立新的班级工作空间</p></button>
+    </section>
+
+    <section className="today-flow">
+      {pending.slice(1, 4).map((todo, index) => <button key={todo.id} className="flow-row" onClick={() => setPage('todos')}>
+        <span className={`flow-dot dot-${index}`} /><time>{todo.date === '今天' ? todo.time : todo.date}</time>
+        <div><b>{todo.title}</b><small>{todo.source}</small></div><span className="flow-arrow">›</span>
       </button>)}
     </section>
 
@@ -412,14 +443,13 @@ function MobileHome({ data, setPage, onQr, onVoice, onTodo }: {
       <div className="pulse-meta"><span><ClipboardCheck size={15} />已回收 {task.completed} 份</span><span>还差 {task.total - task.completed} 人</span></div>
     </section>}
 
-    <div className="today-section-head quick-head"><div><span>轻松开始</span><h3>快捷处理</h3></div></div>
-    <section className="mobile-quick">
-      <button onClick={onQr}><span className="quick-icon qr"><QrCode /></span><b>发布任务</b><small>生成二维码</small></button>
-      <button onClick={onVoice}><span className="quick-icon voice"><Mic /></span><b>问小昕</b><small>语音来处理</small></button>
-      <button onClick={() => setPage('class')}><span className="quick-icon class"><Users /></span><b>班级名单</b><small>{data.students.length} 位学生</small></button>
-      <button onClick={onTodo}><span className="quick-icon todo"><Plus /></span><b>添加待办</b><small>一句话记下</small></button>
-    </section>
     <p className="mobile-quote"><Sparkles size={15} /> 今天也已经做得很好了</p>
+    <aside className={`pet-patrol pet-${activeCare.id}`} aria-live="polite">
+      <div className="pet-bubble"><b>{activeCare.title}</b><span>{activeCare.text}</span></div>
+      <div className="patrol-stage" aria-hidden="true">
+        {careStates.map((state, index) => <img key={state.id} className={index === careIndex ? `active pet-${state.id}` : ''} src={state.image} alt="" />)}
+      </div>
+    </aside>
   </div>
 }
 
@@ -456,9 +486,11 @@ function TodoRow({ todo, toggle }: { todo: Todo; toggle: () => void }) {
   return <div className={`todo-row ${todo.done ? 'done' : ''}`}><button className="check" onClick={toggle}>{todo.done && <Check size={15} />}</button><div><b>{todo.title}</b><span>{todo.source}</span></div><em className={`priority ${todo.priority}`}>{todo.priority}</em><time><Clock3 size={15} />{todo.date} {todo.time}</time></div>
 }
 
-function Classroom({ students, onAdd, onImport }: { students: Student[]; onAdd: () => void; onImport: () => void }) {
+function Classroom({ students, classes, activeClassId, onClassChange, onAddClass, onAdd, onImport }: { students: Student[]; classes: SchoolClass[]; activeClassId: string; onClassChange: (id: string) => void; onAddClass: () => void; onAdd: () => void; onImport: () => void }) {
   const [view, setView] = useState<'cards' | 'table'>('table')
-  return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">CLASS MANAGEMENT</span><h2>高一（3）班</h2><p>学生档案、家校联系和成长记录集中管理</p></div><div className="hero-actions"><button className="secondary" onClick={onImport}><Upload size={18} />表格导入</button><button className="primary" onClick={onAdd}><UserPlus size={18} />添加学生</button></div></section>
+  const activeClass = classes.find(item => item.id === activeClassId) || classes[0]
+  return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">CLASS MANAGEMENT</span><h2>{activeClass?.name || '我的班级'}</h2><p>{activeClass ? `${activeClass.subject} · ${activeClass.role} · ${activeClass.room}` : '添加班级后开始管理学生信息'}</p></div><div className="hero-actions"><button className="secondary" onClick={onAddClass}><Plus size={18} />添加班级</button><button className="secondary" onClick={onImport}><Upload size={18} />表格导入</button><button className="primary" onClick={onAdd}><UserPlus size={18} />添加学生</button></div></section>
+    <div className="class-switch-row">{classes.map(item => <button className={item.id === activeClassId ? 'active' : ''} key={item.id} onClick={() => onClassChange(item.id)}><span>{item.name}</span><small>{item.subject} · {item.role}</small></button>)}<button className="add" onClick={onAddClass}><Plus size={17} /><span>新班级</span></button></div>
     <div className="class-summary"><div><strong>{students.length}</strong><span>学生总数</span></div><div><strong>98.2%</strong><span>本周出勤</span></div><div><strong>6</strong><span>班级干部</span></div><div><strong>3</strong><span>本月生日</span></div><span className="class-view"><button className={view === 'table' ? 'active' : ''} onClick={() => setView('table')}>列表</button><button className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')}>卡片</button></span></div>
     {students.length === 0 ? <Empty icon={Users} title="没有匹配的学生" text="更换关键词后再试" /> : view === 'table' ? <section className="table-card"><table><thead><tr><th>学生</th><th>学号</th><th>班级角色</th><th>家长</th><th>出勤率</th><th /></tr></thead><tbody>{students.map(s => <tr key={s.id}><td><div className={`student-avatar ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(-1)}</div><b>{s.name}</b></td><td>{s.number}</td><td><div className="tags">{s.tags.length ? s.tags.map(t => <span key={t}>{t}</span>) : <i>—</i>}</div></td><td><b className="subtle">{s.guardian}</b><small>{s.phone}</small></td><td><div className="attendance"><i><em style={{ width: `${s.attendance}%` }} /></i><b>{s.attendance}%</b></div></td><td><button className="icon-btn"><MoreHorizontal /></button></td></tr>)}</tbody></table></section> : <div className="student-cards">{students.map(s => <article key={s.id}><div className={`student-avatar big ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(-1)}</div><h3>{s.name}</h3><span>{s.number}</span><div className="tags">{s.tags.map(t => <span key={t}>{t}</span>)}</div><footer><span>出勤 <b>{s.attendance}%</b></span><button>查看档案</button></footer></article>)}</div>}
   </div>
@@ -473,18 +505,62 @@ function Todos({ data, updateTodo, onAdd }: { data: AppData; updateTodo: (id: st
 function Tasks({ data, onNew, onQr, onScan }: { data: AppData; onNew: () => void; onQr: (t: Task) => void; onScan: () => void }) {
   const [current, setCurrent] = useState<Task | null>(data.tasks[0] || null)
   const feedback = data.feedback.filter(f => f.taskId === current?.id)
-  return <div className="page-stack"><section className="page-hero qr-hero"><div><span className="section-kicker">OFFLINE QR WORKFLOW</span><h2>扫码任务中心</h2><p>发布、填写、反馈全程二维码传递，零账号、零云端</p><div className="privacy-pill"><ShieldCheck size={16} />学生隐私不离开设备</div></div><div className="hero-actions"><button className="secondary light" onClick={onScan}><ScanLine size={18} />扫描反馈码</button><button className="primary gold" onClick={onNew}><Plus size={18} />发布新任务</button></div></section>
-    <div className="task-layout"><section className="task-list panel"><header><h3>已发布任务</h3><span>{data.tasks.length}</span></header>{data.tasks.map(t => { const pct = Math.round(t.completed / t.total * 100); return <button className={current?.id === t.id ? 'active' : ''} key={t.id} onClick={() => setCurrent(t)}><span className="task-icon"><QrCode /></span><div><b>{t.title}</b><small>{t.audience} · {t.completed}/{t.total} 人</small><i><em style={{ width: `${pct}%` }} /></i></div><strong>{pct}%</strong></button>})}</section>
-      <section className="panel task-detail">{current ? <><header><div><span className="status-dot">进行中</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>待提交</span></div><div><strong>{Math.round(current.completed / current.total * 100)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>最近反馈</h4><button onClick={onScan}><ScanLine size={16} />继续扫码</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(-1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已收录</em></div>)}</div> : <Empty icon={ClipboardCheck} title="等待第一份反馈" text="扫描学生生成的反馈码后显示在这里" />}</> : <Empty icon={QrCode} title="还没有任务" text="点击右上角发布新任务" />}</section>
+  return <div className="page-stack"><section className="page-hero qr-hero"><div><span className="section-kicker">QR PUBLISHING</span><h2>发布中心</h2><p>信息、图片、打卡、报名和各种接龙，都能生成二维码发布并自动回收</p><div className="privacy-pill"><ShieldCheck size={16} />同一局域网内自动同步到老师端</div></div><div className="hero-actions"><button className="secondary light" onClick={onScan}><ScanLine size={18} />收取备用反馈</button><button className="primary gold" onClick={onNew}><Plus size={18} />新建发布</button></div></section>
+    <div className="publish-types">{['信息收集', '图片收集', '打卡任务', '接龙报名', '确认回执'].map(item => <button key={item} onClick={onNew}><QrCode size={17} /><span>{item}</span></button>)}</div>
+    <div className="task-layout"><section className="task-list panel"><header><h3>已发布内容</h3><span>{data.tasks.length}</span></header>{data.tasks.map(t => { const pct = Math.round(t.completed / t.total * 100); return <button className={current?.id === t.id ? 'active' : ''} key={t.id} onClick={() => setCurrent(t)}><span className="task-icon"><QrCode /></span><div><b>{t.title}</b><small>{t.kind || '信息收集'} · {t.completed}/{t.total} 人</small><i><em style={{ width: `${pct}%` }} /></i></div><strong>{pct}%</strong></button>})}</section>
+      <section className="panel task-detail">{current ? <><header><div><span className="status-dot">{current.kind || '信息收集'} · 进行中</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>待提交</span></div><div><strong>{Math.round(current.completed / current.total * 100)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>自动同步记录</h4><button onClick={onScan}><ScanLine size={16} />收取备用反馈</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(-1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已同步</em></div>)}</div> : <Empty icon={ClipboardCheck} title="等待第一份反馈" text="学生提交后会自动显示在这里" />}</> : <Empty icon={QrCode} title="还没有发布内容" text="点击右上角开始发布" />}</section>
     </div>
   </div>
 }
 
-function Materials({ data, setData, onUpload }: { data: AppData; setData: React.Dispatch<React.SetStateAction<AppData>>; onUpload: () => void }) {
-  const categories = [...new Set(data.materials.map(m => m.category))]
-  const [category, setCategory] = useState('全部')
-  const shown = data.materials.filter(m => category === '全部' || m.category === category)
-  return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">LOCAL MATERIAL LIBRARY</span><h2>我的材料库</h2><p>按工作场景归档，重要材料一眼找到</p></div><button className="primary" onClick={onUpload}><Upload size={18} />导入材料</button></section><div className="material-layout"><aside className="category-panel panel"><h3>分类</h3>{['全部', ...categories].map(c => <button key={c} className={category === c ? 'active' : ''} onClick={() => setCategory(c)}><FolderOpen size={17} />{c}<span>{c === '全部' ? data.materials.length : data.materials.filter(m => m.category === c).length}</span></button>)}</aside><section className="panel files"><header><h3>{category}</h3><span>{shown.length} 个文件</span></header>{shown.map(m => <div className="file-row" key={m.id}><span className={`file-type ${m.name.endsWith('.pdf') ? 'pdf' : m.name.endsWith('.xlsx') ? 'xls' : ''}`}><FileText /></span><div><b>{m.name}</b><span>{m.category} · {m.size} · {m.updated}</span></div><button className={`icon-btn ${m.starred ? 'starred' : ''}`} onClick={() => setData(d => ({ ...d, materials: d.materials.map(x => x.id === m.id ? { ...x, starred: !x.starred } : x) }))}><Star size={18} /></button><button className="icon-btn"><MoreHorizontal /></button></div>)}</section></div></div>
+function Materials({ data, setData }: { data: AppData; setData: React.Dispatch<React.SetStateAction<AppData>> }) {
+  const [directory, setDirectory] = useState('全部文档')
+  const [creating, setCreating] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const shown = data.materials.filter(item => directory === '全部文档' || item.category === directory || item.category.startsWith(`${directory}/`))
+
+  async function importFiles(files: FileList | null, preserveFolders: boolean) {
+    if (!files?.length) return
+    const items: AppData['materials'] = []
+    const foundDirectories = new Set(data.directories)
+    for (const file of Array.from(files)) {
+      const id = uid('m')
+      const relativePath = preserveFolders ? file.webkitRelativePath : ''
+      const pathParts = relativePath.split('/').filter(Boolean)
+      const fileDirectory = preserveFolders && pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : directory === '全部文档' ? '未分类' : directory
+      const segments = fileDirectory.split('/')
+      segments.forEach((_, index) => foundDirectories.add(segments.slice(0, index + 1).join('/')))
+      await storeLocalFile(id, file)
+      items.push({
+        id,
+        name: file.name,
+        category: fileDirectory,
+        path: relativePath || `${fileDirectory}/${file.name}`,
+        storageKey: id,
+        updated: '刚刚',
+        size: file.size > 1024 * 1024 ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`,
+        starred: false
+      })
+    }
+    setData(current => ({ ...current, directories: [...foundDirectories], materials: [...items, ...current.materials] }))
+  }
+
+  function createFolder() {
+    const name = folderName.trim()
+    if (!name) return
+    const path = directory === '全部文档' ? name : `${directory}/${name}`
+    setData(current => ({ ...current, directories: current.directories.includes(path) ? current.directories : [...current.directories, path] }))
+    setDirectory(path)
+    setFolderName('')
+    setCreating(false)
+  }
+
+  return <div className="page-stack document-library"><section className="page-hero compact"><div><span className="section-kicker">LOCAL DOCUMENT LIBRARY</span><h2>资料文档库</h2><p>自己建立目录，文件与文件夹完整保存在本机</p></div><div className="hero-actions"><button className="secondary" onClick={() => setCreating(true)}><Plus size={18} />新建目录</button><button className="secondary" onClick={() => folderInput.current?.click()}><FolderOpen size={18} />上传文件夹</button><button className="primary" onClick={() => fileInput.current?.click()}><Upload size={18} />上传文件</button></div><input ref={fileInput} hidden type="file" multiple onChange={event => { void importFiles(event.target.files, false); event.target.value = '' }} /><input ref={folderInput} hidden type="file" multiple {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} onChange={event => { void importFiles(event.target.files, true); event.target.value = '' }} /></section>
+    <div className="material-layout"><aside className="category-panel panel"><header><h3>我的目录</h3><button onClick={() => setCreating(true)}><Plus size={16} /></button></header><button className={directory === '全部文档' ? 'active' : ''} onClick={() => setDirectory('全部文档')}><Archive size={17} />全部文档<span>{data.materials.length}</span></button>{data.directories.map(item => <button key={item} className={directory === item ? 'active' : ''} onClick={() => setDirectory(item)}><FolderOpen size={17} />{item}<span>{data.materials.filter(file => file.category === item || file.category.startsWith(`${item}/`)).length}</span></button>)}</aside>
+      <section className="panel files"><header><div><span className="library-path">资料文档库 / {directory}</span><h3>{directory}</h3></div><span>{shown.length} 个文件</span></header>{creating && <div className="new-folder-row"><FolderOpen size={20} /><input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createFolder(); if (event.key === 'Escape') setCreating(false) }} placeholder="输入目录名称" /><button className="primary" onClick={createFolder}>建立</button><button className="secondary" onClick={() => setCreating(false)}>取消</button></div>}{shown.length ? shown.map(item => <div className="file-row" key={item.id}><span className={`file-type ${item.name.endsWith('.pdf') ? 'pdf' : item.name.endsWith('.xlsx') ? 'xls' : ''}`}><FileText /></span><div><b>{item.name}</b><span>{item.path || item.category} · {item.size} · {item.updated}</span></div><button className={`icon-btn ${item.starred ? 'starred' : ''}`} onClick={() => setData(current => ({ ...current, materials: current.materials.map(file => file.id === item.id ? { ...file, starred: !file.starred } : file) }))}><Star size={18} /></button><button className="icon-btn"><MoreHorizontal /></button></div>) : <Empty icon={FolderOpen} title="这个目录还是空的" text="上传文件或整个文件夹开始整理" />}</section></div>
+  </div>
 }
 
 function Career() {
@@ -613,6 +689,7 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
       const title = raw.split(/截止|请在/)[0].trim() || raw
       const task: Task = {
         id: uid('q'),
+        kind: '确认回执',
         title,
         description: '由小昕语音助手快速发布，请按要求完成并提交确认。',
         due: nextDue(raw),
@@ -715,6 +792,29 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
   </div>
 }
 
+function NewClass({ onClose, onSave }: { onClose: () => void; onSave: (item: SchoolClass) => void }) {
+  const [form, setForm] = useState({ name: '', role: '班主任', subject: '数学', studentCount: 45, room: '', next: '暂无日程' })
+  return <Modal title="添加班级" onClose={onClose}><form className="modal-form" onSubmit={event => { event.preventDefault(); onSave({ id: uid('c'), ...form }) }}>
+    <label>班级名称<input autoFocus required value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="例如：高一（4）班" /></label>
+    <div className="form-grid"><label>我的身份<select value={form.role} onChange={event => setForm({ ...form, role: event.target.value })}><option>班主任</option><option>任课教师</option><option>年级负责人</option></select></label><label>任教学科<input value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} /></label></div>
+    <div className="form-grid"><label>学生人数<input type="number" min="0" value={form.studentCount} onChange={event => setForm({ ...form, studentCount: Number(event.target.value) })} /></label><label>教室位置<input value={form.room} onChange={event => setForm({ ...form, room: event.target.value })} placeholder="例如：博学楼 304" /></label></div>
+    <label>下一项班级日程<input value={form.next} onChange={event => setForm({ ...form, next: event.target.value })} placeholder="例如：班会 · 周五 15:30" /></label>
+    <footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">添加班级</button></footer>
+  </form></Modal>
+}
+
+function ProfileSettings({ profile, onClose, onSave }: { profile: TeacherProfile; onClose: () => void; onSave: (profile: TeacherProfile) => void }) {
+  const [form, setForm] = useState(profile)
+  return <Modal title="个人信息设置" onClose={onClose}><form className="modal-form" onSubmit={event => { event.preventDefault(); onSave(form) }}>
+    <div className="profile-editor-head"><div className="avatar big">{form.name.slice(0, 1) || '师'}</div><div><b>我的教师名片</b><span>信息仅保存在当前设备</span></div></div>
+    <div className="form-grid"><label>显示姓名<input required autoFocus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label><label>学校<input value={form.school} onChange={event => setForm({ ...form, school: event.target.value })} /></label></div>
+    <div className="form-grid"><label>职务<select value={form.title} onChange={event => setForm({ ...form, title: event.target.value })}><option>班主任</option><option>任课教师</option><option>年级负责人</option><option>教研组长</option></select></label><label>任教学科<input value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} /></label></div>
+    <label>联系电话 <small>选填，仅供本机档案使用</small><input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></label>
+    <label>给自己的每日寄语<textarea value={form.motto} onChange={event => setForm({ ...form, motto: event.target.value })} /></label>
+    <footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">保存信息</button></footer>
+  </form></Modal>
+}
+
 function NewTodo({ onClose, onSave }: { onClose: () => void; onSave: (t: Todo) => void }) {
   const [form, setForm] = useState({ title: '', date: '今天', time: '17:00', priority: '重要' as Todo['priority'], source: '班级事务' })
   return <Modal title="新建待办" onClose={onClose}><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('t'), ...form, done: false }) }}><label>事项名称<input autoFocus required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：收齐家长会回执" /></label><div className="form-grid"><label>日期<select value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}><option>今天</option><option>明天</option><option>本周五</option></select></label><label>时间<input type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></label></div><div className="form-grid"><label>优先级<select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value as Todo['priority'] })}><option>紧急</option><option>重要</option><option>普通</option></select></label><label>来源<input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} /></label></div><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">保存待办</button></footer></form></Modal>
@@ -726,8 +826,15 @@ function NewStudent({ onClose, onSave }: { onClose: () => void; onSave: (s: Stud
 }
 
 function NewTask({ total, onClose, onSave }: { total: number; onClose: () => void; onSave: (t: Task) => void }) {
-  const [form, setForm] = useState({ title: '', description: '', due: '2026-07-31 18:00', fields: '是否确认\n备注', audience: '高一（3）班' })
-  return <Modal title="发布扫码任务" onClose={onClose} wide><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('q'), title: form.title, description: form.description, due: form.due, fields: form.fields.split('\n').map(x => x.trim()).filter(Boolean), audience: form.audience, created: new Date().toISOString().slice(0, 10), completed: 0, total }) }}><div className="offline-hint"><QrCode /><div><b>离线二维码任务</b><span>任务内容写入二维码，学生无需登录；反馈通过回传二维码收取。</span></div></div><label>任务标题<input required autoFocus value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：家长会参会确认" /></label><label>说明<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="向学生或家长说明填写要求" /></label><div className="form-grid"><label>发布对象<input value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })} /></label><label>截止时间<input value={form.due} onChange={e => setForm({ ...form, due: e.target.value })} /></label></div><label>需要填写的字段 <small>每行一个问题</small><textarea required value={form.fields} onChange={e => setForm({ ...form, fields: e.target.value })} /></label><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary"><QrCode size={17} />生成发布码</button></footer></form></Modal>
+  const templates: Record<NonNullable<Task['kind']>, string> = {
+    '信息收集': '联系电话\n需要说明的信息\n备注',
+    '图片收集': '图片上传\n图片说明',
+    '打卡任务': '是否完成今日打卡\n打卡照片\n感受',
+    '接龙报名': '是否参加\n报名项目\n备注',
+    '确认回执': '是否已阅读并确认\n家长签名\n备注'
+  }
+  const [form, setForm] = useState({ kind: '信息收集' as NonNullable<Task['kind']>, title: '', description: '', due: '2026-07-31 18:00', fields: templates['信息收集'], audience: '高一（3）班' })
+  return <Modal title="新建发布" onClose={onClose} wide><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('q'), kind: form.kind, title: form.title, description: form.description, due: form.due, fields: form.fields.split('\n').map(x => x.trim()).filter(Boolean), audience: form.audience, created: new Date().toISOString().slice(0, 10), completed: 0, total }) }}><div className="offline-hint"><QrCode /><div><b>二维码发布与自动回收</b><span>学生无需账号，扫码填写后在同一局域网内自动同步到老师端。</span></div></div><label>发布类型<div className="publish-kind-grid">{(Object.keys(templates) as Array<NonNullable<Task['kind']>>).map(kind => <button type="button" className={form.kind === kind ? 'active' : ''} key={kind} onClick={() => setForm({ ...form, kind, fields: templates[kind] })}>{kind}</button>)}</div></label><label>发布标题<input required autoFocus value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={form.kind === '图片收集' ? '例如：暑期实践照片收集' : form.kind === '打卡任务' ? '例如：每日阅读打卡' : '例如：家长会参会确认'} /></label><label>说明<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="向学生或家长说明填写要求" /></label><div className="form-grid"><label>发布对象<input value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })} /></label><label>截止时间<input value={form.due} onChange={e => setForm({ ...form, due: e.target.value })} /></label></div><label>学生需要填写的内容 <small>每行一个字段，含“图片”或“照片”时自动显示拍照上传</small><textarea required value={form.fields} onChange={e => setForm({ ...form, fields: e.target.value })} /></label><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary"><QrCode size={17} />生成发布二维码</button></footer></form></Modal>
 }
 
 function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: (f: Feedback) => void }) {
