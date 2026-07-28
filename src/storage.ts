@@ -22,7 +22,7 @@ export function exportData(data: AppData) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `知序数据备份-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = `以昕数据备份-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
 }

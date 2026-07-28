@@ -9,8 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: '知序 · 教师工作台',
-        short_name: '知序',
+        name: '以昕 · 教师工作台',
+        short_name: '以昕',
         description: '本地优先的班主任与教师工作助手',
         theme_color: '#f7f8f4',
         background_color: '#f7f8f4',

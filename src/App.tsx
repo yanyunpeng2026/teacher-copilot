@@ -108,13 +108,13 @@ function StudentTask() {
   const task = payload.task
   return (
     <div className="student-shell">
-      <div className="student-brand"><span className="logo-mark"><BookOpen size={22} /></span><b>知序</b><em>学生任务</em></div>
+      <div className="student-brand"><span className="logo-mark"><BookOpen size={22} /></span><b>以昕</b><em>学生任务</em></div>
       <main className="student-card">
         {syncComplete ? (
           <div className="result-card">
             <span className="success-icon pulse-success"><Check size={34} /></span>
             <h1>已自动提交</h1>
-            <p>反馈已同步至老师的知序工作台，无需再出示二维码。</p>
+            <p>反馈已同步至老师的以昕工作台，无需再出示二维码。</p>
             <div className="sync-receipt"><CheckCircle2 size={20} /><div><b>老师端已接收</b><span>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div></div>
             <div className="privacy-note"><ShieldCheck size={17} />仅在校园局域网内传输 · 未上传云端</div>
           </div>
@@ -242,11 +242,11 @@ export default function App() {
     e.target.value = ''
   }
 
-  const title = nav.find(n => n.id === page)?.label || '工作台'
+  const title = page === 'home' ? '以昕' : nav.find(n => n.id === page)?.label || '工作台'
   return (
-    <div className="app">
+    <div className={`app page-${page}`}>
       <aside className={sidebar ? 'sidebar open' : 'sidebar'}>
-        <div className="brand"><span className="logo-mark"><BookOpen size={22} /></span><div><b>知序</b><small>教师工作台</small></div><button aria-label="关闭菜单" className="sidebar-close" onClick={() => setSidebar(false)}><X /></button></div>
+        <div className="brand"><span className="logo-mark"><BookOpen size={22} /></span><div><b>以昕</b><small>教师工作台</small></div><button aria-label="关闭菜单" className="sidebar-close" onClick={() => setSidebar(false)}><X /></button></div>
         <div className="teacher-mini">
           <div className="avatar">江</div><div><b>江老师</b><span>高一（3）班 · 班主任</span></div><ChevronDown size={16} />
         </div>
@@ -267,14 +267,17 @@ export default function App() {
           <div className="top-actions">
             <div className={`sync-chip ${sync.connected ? 'online' : ''}`}><i />{sync.connected ? '局域网同步中' : '单机模式'}</div>
             <label className="search"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索学生、材料或待办" /></label>
-            <button aria-label="问小知" className="voice-trigger" onClick={() => setVoiceOpen(true)}><Mic size={18} /><span>问小知</span><kbd>Ctrl ⇧ X</kbd></button>
+            <button aria-label="问小昕" className="voice-trigger" onClick={() => setVoiceOpen(true)}><Mic size={18} /><span>问小昕</span><kbd>Ctrl ⇧ X</kbd></button>
             <button aria-label="通知" className="icon-btn alert"><Bell size={20} /><i /></button>
             <button className="primary" onClick={() => setModal('quick')}><Plus size={18} />快速新建</button>
           </div>
         </header>
 
         <div className="content">
-          {page === 'home' && <Home data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} />}
+          {page === 'home' && <>
+            <div className="desktop-home"><Home data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
+            <div className="mobile-home"><MobileHome data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} /></div>
+          </>}
           {page === 'class' && <Classroom students={filteredStudents} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
           {page === 'tasks' && <Tasks data={data} onNew={() => setModal('new-task')} onQr={showTaskQr} onScan={() => setModal('feedback')} />}
@@ -293,7 +296,7 @@ export default function App() {
         <button onClick={() => setSidebar(true)}><Menu size={21} /><span>更多</span></button>
       </nav>
       {toast && <div className={`toast ${toast.kind || ''}`}><CheckCircle2 size={18} />{toast.text}</div>}
-      <button className="voice-fab" aria-label="问小知语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
+      <button className="voice-fab" aria-label="问小昕语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
       {voiceOpen && <VoiceAssistant todos={data.todos} total={data.students.length} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
 
       {modal === 'quick' && <Modal title="快速新建" onClose={() => setModal(null)}><div className="quick-grid">
@@ -310,6 +313,79 @@ export default function App() {
       {modal === 'upload-material' && <UploadMaterial onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '材料索引已保存', kind: 'ok' }) }} />}
     </div>
   )
+}
+
+function MobileHome({ data, setPage, updateTodo, onQr, onVoice, onTodo }: {
+  data: AppData
+  setPage: (p: Page) => void
+  updateTodo: (id: string) => void
+  onQr: () => void
+  onVoice: () => void
+  onTodo: () => void
+}) {
+  const pending = data.todos.filter(todo => !todo.done)
+  const next = pending[0]
+  const task = data.tasks[0]
+  const progress = task ? Math.round(task.completed / task.total * 100) : 0
+  const mascot = `${import.meta.env.BASE_URL}mascot/xiaoxin.webp`
+  const glance = [
+    { value: pending.length, label: '待办', note: '1项紧急', className: 'coral' },
+    { value: '14:30', label: '下一日程', note: '年级教研', className: 'violet' },
+    { value: `${progress}%`, label: '任务回收', note: task ? `${task.completed}/${task.total}人` : '暂无任务', className: 'mint' }
+  ]
+
+  return <div className="mobile-today">
+    <section className="mobile-greeting">
+      <div className="mobile-greeting-copy">
+        <span className="mobile-date">7月28日 · 星期二</span>
+        <h2>下午好，江老师 <i>☀</i></h2>
+        <p>今天的事情都在这里，我陪你从容完成。</p>
+      </div>
+      <button className="mascot-button" onClick={onVoice} aria-label="和小昕说话">
+        <span className="mascot-bubble">嗨，我是小昕<br /><b>点我就能说话</b></span>
+        <img src={mascot} alt="小昕，一只可爱的小龙人助手" />
+      </button>
+    </section>
+
+    <section className="today-glance" aria-label="今日一览">
+      {glance.map(item => <button key={item.label} className={`glance-card ${item.className}`} onClick={() => item.label === '待办' ? setPage('todos') : item.label === '任务回收' ? setPage('tasks') : undefined}>
+        <strong>{item.value}</strong>
+        <span>{item.label}</span>
+        <small>{item.note}</small>
+      </button>)}
+    </section>
+
+    <div className="today-section-head"><div><span>现在</span><h3>下一件事</h3></div><button onClick={() => setPage('todos')}>全部待办</button></div>
+    {next ? <section className="next-card">
+      <div className="next-time"><Clock3 size={18} /><strong>{next.time}</strong><span>{next.date}</span></div>
+      <div className="next-copy"><span className="next-priority">{next.priority}</span><h3>{next.title}</h3><p>{next.source} · 预计 15 分钟</p></div>
+      <button className="next-check" onClick={() => updateTodo(next.id)} aria-label="标记为完成"><Check size={20} /></button>
+    </section> : <section className="next-card all-done"><CheckCircle2 /><div><h3>今天的待办完成啦</h3><p>可以安心喝口水，休息一下。</p></div></section>}
+
+    <section className="today-flow">
+      {pending.slice(1, 4).map((todo, index) => <button key={todo.id} className="flow-row" onClick={() => setPage('todos')}>
+        <span className={`flow-dot dot-${index}`} />
+        <time>{todo.date === '今天' ? todo.time : todo.date}</time>
+        <div><b>{todo.title}</b><small>{todo.source}</small></div>
+        <span className="flow-arrow">›</span>
+      </button>)}
+    </section>
+
+    {task && <section className="class-pulse" onClick={() => setPage('tasks')}>
+      <div className="pulse-head"><div><span>班级动态</span><h3>{task.title}</h3></div><strong>{progress}%</strong></div>
+      <div className="pulse-track"><i style={{ width: `${progress}%` }} /></div>
+      <div className="pulse-meta"><span><ClipboardCheck size={15} />已回收 {task.completed} 份</span><span>还差 {task.total - task.completed} 人</span></div>
+    </section>}
+
+    <div className="today-section-head quick-head"><div><span>轻松开始</span><h3>快捷处理</h3></div></div>
+    <section className="mobile-quick">
+      <button onClick={onQr}><span className="quick-icon qr"><QrCode /></span><b>发布任务</b><small>生成二维码</small></button>
+      <button onClick={onVoice}><span className="quick-icon voice"><Mic /></span><b>问小昕</b><small>语音来处理</small></button>
+      <button onClick={() => setPage('class')}><span className="quick-icon class"><Users /></span><b>班级名单</b><small>{data.students.length} 位学生</small></button>
+      <button onClick={onTodo}><span className="quick-icon todo"><Plus /></span><b>添加待办</b><small>一句话记下</small></button>
+    </section>
+    <p className="mobile-quote"><Sparkles size={15} /> 今天也已经做得很好了</p>
+  </div>
 }
 
 function Home({ data, setPage, updateTodo, onQr }: { data: AppData; setPage: (p: Page) => void; updateTodo: (id: string) => void; onQr: () => void }) {
@@ -480,7 +556,7 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
   }
 
   function handleCommand(input: string) {
-    const command = input.replace(/[，。！？、]/g, ' ').replace(/问小知|小知/g, '').trim()
+    const command = input.replace(/[，。！？、]/g, ' ').replace(/问小昕|小昕|问小知|小知/g, '').trim()
     setTranscript(input)
     if (/下面.*干嘛|接下来.*做什么|还有.*待办|播报.*待办|今天.*任务/.test(command)) {
       const pending = todos.filter(todo => !todo.done).slice(0, 5)
@@ -503,7 +579,7 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
       const task: Task = {
         id: uid('q'),
         title,
-        description: '由小知语音助手快速发布，请按要求完成并提交确认。',
+        description: '由小昕语音助手快速发布，请按要求完成并提交确认。',
         due: nextDue(raw),
         fields: ['是否完成', '备注'],
         audience: '高一（3）班',
@@ -525,7 +601,7 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
   async function startListening() {
     setListening(true)
     setTranscript('')
-    setReply('正在听，请说“问小知……”')
+    setReply('正在听，请说“问小昕……”')
     try {
       const health = await fetch('/api/health')
       if (health.ok) {
@@ -572,21 +648,21 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
     recognition.onend = () => setListening(false)
     recognitionRef.current = recognition
     setListening(true)
-    setReply('正在听，请说“问小知……”')
+    setReply('正在听，请说“问小昕……”')
     recognition.start()
   }
 
   return <div className="voice-backdrop" onMouseDown={onClose}>
     <section className="voice-sheet" onMouseDown={event => event.stopPropagation()}>
-      <header><div className="xiaozhi-mark"><Sparkles size={20} /></div><div><b>问小知</b><span>本地语音工作助手</span></div><button aria-label="语音播报设置" className={voiceSettingsOpen ? 'active' : ''} onClick={() => setVoiceSettingsOpen(value => !value)}><Settings size={18} /></button><button aria-label="关闭语音助手" onClick={onClose}><X size={19} /></button></header>
+      <header><div className="xiaozhi-mark"><Sparkles size={20} /></div><div><b>问小昕</b><span>本地语音工作助手</span></div><button aria-label="语音播报设置" className={voiceSettingsOpen ? 'active' : ''} onClick={() => setVoiceSettingsOpen(value => !value)}><Settings size={18} /></button><button aria-label="关闭语音助手" onClick={onClose}><X size={19} /></button></header>
       <div className={`voice-orb ${listening ? 'listening' : ''}`}>
         <button aria-label={listening ? '正在聆听' : '开始语音输入'} onClick={startListening}><Mic size={30} /></button>
         {listening && <><i /><i /><i /></>}
       </div>
-      <div className="voice-status"><b>{listening ? '正在聆听…' : '点击麦克风，然后说话'}</b><span>{transcript || '“问小知，下面我要干嘛？”'}</span></div>
+      <div className="voice-status"><b>{listening ? '正在聆听…' : '点击麦克风，然后说话'}</b><span>{transcript || '“问小昕，下面我要干嘛？”'}</span></div>
       <div className="voice-reply"><Volume2 size={18} /><p>{reply}</p><button aria-label="重新播报" onClick={() => speak(reply)}>重播</button></div>
       {voiceSettingsOpen && <div className="voice-settings">
-        <div className="voice-settings-title"><div><b>播报声音</b><span>使用设备中已安装的系统人声</span></div><button onClick={() => speak('你好，我是小知。接下来由我陪你处理今天的工作。')}><Volume2 size={15} />试听</button></div>
+        <div className="voice-settings-title"><div><b>播报声音</b><span>使用设备中已安装的系统人声</span></div><button onClick={() => speak('你好，我是小昕。接下来由我陪你处理今天的工作。')}><Volume2 size={15} />试听</button></div>
         <label>选择人声<select value={voicePrefs.voiceURI} onChange={event => setVoicePrefs({ ...voicePrefs, voiceURI: event.target.value })}>{voices.length ? voices.map(voice => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>) : <option value="">系统默认中文人声</option>}</select></label>
         <div className="voice-range-grid">
           <label><span>语速 <em>{voicePrefs.rate.toFixed(1)}×</em></span><input type="range" min=".6" max="1.4" step=".1" value={voicePrefs.rate} onChange={event => setVoicePrefs({ ...voicePrefs, rate: Number(event.target.value) })} /></label>
@@ -595,11 +671,11 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
         <p><ShieldCheck size={14} />人声设置仅保存在当前设备</p>
       </div>}
       <div className="voice-examples">
-        <button onClick={() => handleCommand('问小知，下面我要干嘛')}><ListTodo size={16} />播报接下来待办</button>
-        <button onClick={() => handleCommand('问小知，发布简单任务：明天带学生证')}><QrCode size={16} />发布示例任务</button>
+        <button onClick={() => handleCommand('问小昕，下面我要干嘛')}><ListTodo size={16} />播报接下来待办</button>
+        <button onClick={() => handleCommand('问小昕，发布简单任务：明天带学生证')}><QrCode size={16} />发布示例任务</button>
       </div>
       <label className="voice-text-fallback">也可以输入指令<input value={transcript} onChange={event => setTranscript(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && transcript.trim()) handleCommand(transcript) }} placeholder="输入后按 Enter" /></label>
-      <footer><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>X</kbd><em>随时唤出小知</em></footer>
+      <footer><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>X</kbd><em>随时唤出小昕</em></footer>
     </section>
   </div>
 }
@@ -632,7 +708,7 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
       if (parsed.type !== 'zhixu-feedback') throw new Error()
       controlsRef.current?.stop()
       onImport(parsed.feedback)
-    } catch { setError('未识别到有效的知序反馈码内容') }
+    } catch { setError('未识别到有效的以昕反馈码内容') }
   }
   async function startScan() {
     setError('')

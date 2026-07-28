@@ -6,3 +6,5 @@ dist
 vite.config.js
 vite.config.d.ts
 data
+public/mascot/*-chroma.png
+public/mascot/xiaozhilong.png
