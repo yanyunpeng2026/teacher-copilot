@@ -58,6 +58,42 @@ function Empty({ icon: Icon, title, text }: { icon: typeof Archive; title: strin
   return <div className="empty"><Icon size={32} /><b>{title}</b><span>{text}</span></div>
 }
 
+function ReminderCenter({ data, onClose, onNavigate }: { data: AppData; onClose: () => void; onNavigate: (page: Page) => void }) {
+  const now = new Date()
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const todos = data.todos.filter(todo => !todo.done).slice(0, 4).map(todo => {
+    const [hour, minute] = todo.time.split(':').map(Number)
+    const overdue = todo.date === '今天' && hour * 60 + minute < minutes
+    return {
+      id: todo.id,
+      Icon: Clock3,
+      tone: overdue ? 'urgent' : todo.priority === '紧急' ? 'important' : 'normal',
+      label: overdue ? '已超时' : todo.priority,
+      title: todo.title,
+      text: `${todo.date} ${todo.time} · ${todo.source}`,
+      page: 'todos' as Page
+    }
+  })
+  const tasks = data.tasks.filter(task => task.completed < task.total).slice(0, 3).map(task => ({
+    id: task.id,
+    Icon: ClipboardCheck,
+    tone: 'task',
+    label: '待回收',
+    title: task.title,
+    text: `还差 ${task.total - task.completed} 人 · 截止 ${task.due}`,
+    page: 'tasks' as Page
+  }))
+  const items = [...todos, ...tasks]
+  return <Modal title="提醒中心" onClose={onClose}><div className="reminder-center">
+    <div className="reminder-summary"><span><Bell size={21} /></span><div><b>{items.length ? `还有 ${items.length} 件事需要留意` : '目前没有待处理提醒'}</b><p>{items.length ? '小昕已经按紧急程度整理好，点开即可查看。' : '可以安心休息一会儿，有新事项时会显示在这里。'}</p></div></div>
+    <div className="reminder-list">
+      {items.map(item => <button key={`${item.page}-${item.id}`} onClick={() => { onNavigate(item.page); onClose() }}><span className={`reminder-icon ${item.tone}`}><item.Icon size={18} /></span><div><em>{item.label}</em><b>{item.title}</b><small>{item.text}</small></div><span className="reminder-open">›</span></button>)}
+      {!items.length && <Empty icon={CheckCircle2} title="今天很从容" text="暂时没有需要处理的提醒" />}
+    </div>
+    <div className="care-reminder"><span>🌿</span><div><b>小昕关怀提醒</b><p>喝几口水，活动一下肩颈，再继续也不迟。</p></div></div>
+  </div></Modal>
+}
+
 function formatToday(date: Date) {
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   return `${date.getMonth() + 1}月${date.getDate()}日 · 星期${weekdays[date.getDay()]}`
@@ -245,6 +281,7 @@ export default function App() {
   const activeClass = data.classes.find(item => item.id === activeClassId) || data.classes[0]
   const classStudents = data.students.filter(student => student.classId === activeClass?.id)
   const filteredStudents = classStudents.filter(student => `${student.name}${student.number}${student.tags.join('')}`.includes(search))
+  const reminderCount = data.todos.filter(todo => !todo.done).length + data.tasks.filter(task => task.completed < task.total).length
 
   function updateTodo(id: string) {
     setData(d => ({ ...d, todos: d.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) }))
@@ -316,7 +353,7 @@ export default function App() {
             <div className={`sync-chip ${sync.connected ? 'online' : ''}`}><i />{sync.connected ? '局域网同步中' : '单机模式'}</div>
             <label className="search"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索学生、材料或待办" /></label>
             <button aria-label="问小昕" className="voice-trigger" onClick={() => setVoiceOpen(true)}><Mic size={18} /><span>问小昕</span><kbd>Ctrl ⇧ X</kbd></button>
-            <button aria-label="通知" className="icon-btn alert"><Bell size={20} /><i /></button>
+            <button aria-label={`提醒中心，${reminderCount}条提醒`} className="icon-btn alert" onClick={() => setModal('reminders')}><Bell size={20} />{reminderCount > 0 && <i />}</button>
             <button className="primary" onClick={() => setModal('quick')}><Plus size={18} />快速新建</button>
           </div>
         </header>
@@ -361,6 +398,7 @@ export default function App() {
       {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><div className={`qr-sync-state ${sync.connected ? 'online' : ''}`}><span><i />{sync.connected ? '自动回收已开启' : '当前为单机备用模式'}</span><small>{sync.connected ? `学生提交后自动同步至本机 · ${sync.address}` : '启动 Windows 本地服务后可免二次扫码'}</small></div><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
       {modal === 'feedback' && <FeedbackImport onClose={() => setModal(null)} onImport={feedback => { const exists = data.feedback.some(f => f.id === feedback.id); if (!exists) setData(d => ({ ...d, feedback: [feedback, ...d.feedback], tasks: d.tasks.map(t => t.id === feedback.taskId ? { ...t, completed: Math.min(t.total, t.completed + 1) } : t) })); setModal(null); setToast({ text: exists ? '这份反馈已收录' : `已收录 ${feedback.student} 的反馈`, kind: 'ok' }) }} />}
       {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => setModal('profile')}><CircleUserRound size={19} /><span><b>个人信息设置</b><small>姓名、学校、任教学科和关怀寄语</small></span></button><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
+      {modal === 'reminders' && <ReminderCenter data={data} onClose={() => setModal(null)} onNavigate={setPage} />}
       {modal === 'import-students' && activeClass && <ImportStudents classId={activeClass.id} onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已向${activeClass.name}导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
       {modal === 'upload-material' && <UploadMaterial onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '材料索引已保存', kind: 'ok' }) }} />}
     </div>
