@@ -9,7 +9,7 @@ import {
   Upload, UserPlus, Users, Volume2, WandSparkles, X
 } from 'lucide-react'
 import type { AppData, Feedback, SchoolClass, Student, Task, TeacherProfile, Todo } from './types'
-import { exportData, loadData, saveData } from './storage'
+import { exportData, loadData, normalizeData, saveData } from './storage'
 import { detectSync, fetchFeedback, fetchTask, publishTask, submitFeedback, subscribeFeedback, type SyncState } from './sync'
 import { storeLocalFile } from './fileStore'
 
@@ -188,6 +188,7 @@ export default function App() {
   const [toast, setToast] = useState<Toast | null>(null)
   const [modal, setModal] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [qrUrl, setQrUrl] = useState('')
   const [sidebar, setSidebar] = useState(false)
   const [sync, setSync] = useState<SyncState>({ connected: false, origin: '', address: '' })
@@ -241,8 +242,9 @@ export default function App() {
   if (location.hash.startsWith('#/student')) return <StudentTask />
 
   const todayDone = data.todos.filter(t => t.done).length
-  const filteredStudents = data.students.filter(s => `${s.name}${s.number}${s.tags.join('')}`.includes(search))
   const activeClass = data.classes.find(item => item.id === activeClassId) || data.classes[0]
+  const classStudents = data.students.filter(student => student.classId === activeClass?.id)
+  const filteredStudents = classStudents.filter(student => `${student.name}${student.number}${student.tags.join('')}`.includes(search))
 
   function updateTodo(id: string) {
     setData(d => ({ ...d, todos: d.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) }))
@@ -271,13 +273,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(String(reader.result)) as AppData
         if (!parsed.students || !parsed.todos || !parsed.tasks) throw new Error()
-        setData(current => ({
-          ...current,
-          ...parsed,
-          classes: parsed.classes?.length ? parsed.classes : current.classes,
-          profile: parsed.profile || current.profile,
-          directories: parsed.directories?.length ? parsed.directories : current.directories
-        }))
+        setData(current => normalizeData(parsed, current))
         setToast({ text: '本地备份已恢复', kind: 'ok' })
       } catch {
         setToast({ text: '文件格式无法识别' })
@@ -327,10 +323,10 @@ export default function App() {
 
         <div className="content">
           {page === 'home' && <>
-            <div className="desktop-home"><Home data={data} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
+            <div className="desktop-home"><Home data={data} studentTotal={classStudents.length} activeClassName={activeClass?.name || '当前班级'} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
             <div className="mobile-home"><MobileHome data={data} activeClassId={activeClass?.id || ''} setPage={setPage} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} onAddClass={() => setModal('new-class')} /></div>
           </>}
-          {page === 'class' && <Classroom students={filteredStudents} classes={data.classes} activeClassId={activeClass?.id || ''} onClassChange={setActiveClassId} onAddClass={() => setModal('new-class')} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
+          {page === 'class' && <Classroom students={filteredStudents} classes={data.classes} activeClassId={activeClass?.id || ''} hasSearch={Boolean(search)} onClassChange={setActiveClassId} onAddClass={() => setModal('new-class')} onEditClass={() => setModal('edit-class')} onEditStudent={student => { setSelectedStudent(student); setModal('edit-student') }} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
           {page === 'tasks' && <Tasks data={data} onNew={() => setModal('new-task')} onQr={showTaskQr} onScan={() => setModal('feedback')} />}
           {page === 'materials' && <Materials data={data} setData={setData} />}
@@ -349,21 +345,23 @@ export default function App() {
       </nav>
       {toast && <div className={`toast ${toast.kind || ''}`}><CheckCircle2 size={18} />{toast.text}</div>}
       <button className="voice-fab" aria-label="问小昕语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
-      {voiceOpen && <VoiceAssistant todos={data.todos} total={data.students.length} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
+      {voiceOpen && <VoiceAssistant todos={data.todos} total={activeClass?.studentCount || classStudents.length} audience={activeClass?.name || '当前班级'} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
 
       {modal === 'quick' && <Modal title="快速新建" onClose={() => setModal(null)}><div className="quick-grid">
         {[['新建待办', ListTodo, 'new-todo'], ['发布扫码任务', QrCode, 'new-task'], ['添加班级', Users, 'new-class'], ['上传资料文档', Upload, 'go-materials']].map(([label, Icon, key]) => <button key={String(key)} onClick={() => { if (key === 'go-materials') { setPage('materials'); setModal(null) } else setModal(String(key)) }}><Icon size={24} /><b>{String(label)}</b><span>立即开始</span></button>)}
       </div></Modal>}
 
       {modal === 'new-todo' && <NewTodo onClose={() => setModal(null)} onSave={todo => { setData(d => ({ ...d, todos: [todo, ...d.todos] })); setModal(null); setToast({ text: '待办已添加', kind: 'ok' }) }} />}
-      {modal === 'new-student' && <NewStudent onClose={() => setModal(null)} onSave={student => { setData(d => ({ ...d, students: [...d.students, student] })); setModal(null); setToast({ text: '学生已加入班级', kind: 'ok' }) }} />}
+      {modal === 'new-student' && activeClass && <NewStudent classId={activeClass.id} onClose={() => setModal(null)} onSave={student => { setData(d => ({ ...d, students: [...d.students, student] })); setModal(null); setToast({ text: `学生已加入${activeClass.name}`, kind: 'ok' }) }} />}
+      {modal === 'edit-student' && selectedStudent && <NewStudent classId={selectedStudent.classId} initial={selectedStudent} onClose={() => setModal(null)} onSave={student => { setData(d => ({ ...d, students: d.students.map(item => item.id === student.id ? student : item) })); setSelectedStudent(null); setModal(null); setToast({ text: `${student.name}的信息已更新`, kind: 'ok' }) }} />}
       {modal === 'new-class' && <NewClass onClose={() => setModal(null)} onSave={schoolClass => { setData(d => ({ ...d, classes: [...d.classes, schoolClass] })); setActiveClassId(schoolClass.id); setModal(null); setToast({ text: `${schoolClass.name}已添加`, kind: 'ok' }) }} />}
+      {modal === 'edit-class' && activeClass && <NewClass initial={activeClass} onClose={() => setModal(null)} onSave={schoolClass => { setData(d => ({ ...d, classes: d.classes.map(item => item.id === schoolClass.id ? schoolClass : item) })); setModal(null); setToast({ text: `${schoolClass.name}信息已更新`, kind: 'ok' }) }} />}
       {modal === 'profile' && <ProfileSettings profile={data.profile} onClose={() => setModal(null)} onSave={profile => { setData(d => ({ ...d, profile })); setModal(null); setToast({ text: '个人信息已保存', kind: 'ok' }) }} />}
-      {modal === 'new-task' && <NewTask total={data.students.length} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
+      {modal === 'new-task' && <NewTask total={activeClass?.studentCount || classStudents.length} audience={activeClass?.name || '当前班级'} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
       {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><div className={`qr-sync-state ${sync.connected ? 'online' : ''}`}><span><i />{sync.connected ? '自动回收已开启' : '当前为单机备用模式'}</span><small>{sync.connected ? `学生提交后自动同步至本机 · ${sync.address}` : '启动 Windows 本地服务后可免二次扫码'}</small></div><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
       {modal === 'feedback' && <FeedbackImport onClose={() => setModal(null)} onImport={feedback => { const exists = data.feedback.some(f => f.id === feedback.id); if (!exists) setData(d => ({ ...d, feedback: [feedback, ...d.feedback], tasks: d.tasks.map(t => t.id === feedback.taskId ? { ...t, completed: Math.min(t.total, t.completed + 1) } : t) })); setModal(null); setToast({ text: exists ? '这份反馈已收录' : `已收录 ${feedback.student} 的反馈`, kind: 'ok' }) }} />}
       {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => setModal('profile')}><CircleUserRound size={19} /><span><b>个人信息设置</b><small>姓名、学校、任教学科和关怀寄语</small></span></button><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
-      {modal === 'import-students' && <ImportStudents onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
+      {modal === 'import-students' && activeClass && <ImportStudents classId={activeClass.id} onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已向${activeClass.name}导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
       {modal === 'upload-material' && <UploadMaterial onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '材料索引已保存', kind: 'ok' }) }} />}
     </div>
   )
@@ -488,7 +486,7 @@ function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAdd
   </div>
 }
 
-function Home({ data, setPage, updateTodo, onQr }: { data: AppData; setPage: (p: Page) => void; updateTodo: (id: string) => void; onQr: () => void }) {
+function Home({ data, studentTotal, activeClassName, setPage, updateTodo, onQr }: { data: AppData; studentTotal: number; activeClassName: string; setPage: (p: Page) => void; updateTodo: (id: string) => void; onQr: () => void }) {
   const pending = data.todos.filter(t => !t.done)
   const progress = data.tasks.length ? Math.round(data.tasks[0].completed / data.tasks[0].total * 100) : 0
   const now = new Date()
@@ -499,7 +497,7 @@ function Home({ data, setPage, updateTodo, onQr }: { data: AppData; setPage: (p:
       <button className="primary" onClick={onQr}><QrCode size={19} />发布扫码任务</button>
     </section>
     <div className="metrics">
-      <article><span className="metric-icon green"><Users /></span><div><small>班级人数</small><strong>{data.students.length}</strong><em>高一（3）班</em></div></article>
+      <article><span className="metric-icon green"><Users /></span><div><small>班级人数</small><strong>{studentTotal}</strong><em>{activeClassName}</em></div></article>
       <article><span className="metric-icon amber"><ListTodo /></span><div><small>待处理事项</small><strong>{pending.length}</strong><em className="danger">1 项今天到期</em></div></article>
       <article><span className="metric-icon blue"><ClipboardCheck /></span><div><small>任务回收</small><strong>{data.tasks[0]?.completed || 0}<i>/{data.tasks[0]?.total || 0}</i></strong><em>完成率 {progress}%</em></div></article>
       <article><span className="metric-icon purple"><FileArchive /></span><div><small>材料总数</small><strong>{data.materials.length}</strong><em>本地安全存储</em></div></article>
@@ -523,13 +521,15 @@ function TodoRow({ todo, toggle }: { todo: Todo; toggle: () => void }) {
   return <div className={`todo-row ${todo.done ? 'done' : ''}`}><button className="check" onClick={toggle}>{todo.done && <Check size={15} />}</button><div><b>{todo.title}</b><span>{todo.source}</span></div><em className={`priority ${todo.priority}`}>{todo.priority}</em><time><Clock3 size={15} />{todo.date} {todo.time}</time></div>
 }
 
-function Classroom({ students, classes, activeClassId, onClassChange, onAddClass, onAdd, onImport }: { students: Student[]; classes: SchoolClass[]; activeClassId: string; onClassChange: (id: string) => void; onAddClass: () => void; onAdd: () => void; onImport: () => void }) {
+function Classroom({ students, classes, activeClassId, hasSearch, onClassChange, onAddClass, onEditClass, onEditStudent, onAdd, onImport }: { students: Student[]; classes: SchoolClass[]; activeClassId: string; hasSearch: boolean; onClassChange: (id: string) => void; onAddClass: () => void; onEditClass: () => void; onEditStudent: (student: Student) => void; onAdd: () => void; onImport: () => void }) {
   const [view, setView] = useState<'cards' | 'table'>('table')
   const activeClass = classes.find(item => item.id === activeClassId) || classes[0]
-  return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">CLASS MANAGEMENT</span><h2>{activeClass?.name || '我的班级'}</h2><p>{activeClass ? `${activeClass.subject} · ${activeClass.role} · ${activeClass.room}` : '添加班级后开始管理学生信息'}</p></div><div className="hero-actions"><button className="secondary" onClick={onAddClass}><Plus size={18} />添加班级</button><button className="secondary" onClick={onImport}><Upload size={18} />表格导入</button><button className="primary" onClick={onAdd}><UserPlus size={18} />添加学生</button></div></section>
+  const attendance = students.length ? `${(students.reduce((sum, student) => sum + student.attendance, 0) / students.length).toFixed(1)}%` : '—'
+  const leaders = students.filter(student => student.tags.length).length
+  return <div className="page-stack"><section className="page-hero compact"><div><span className="section-kicker">CLASS MANAGEMENT</span><h2>{activeClass?.name || '我的班级'}</h2><p>{activeClass ? `${activeClass.subject} · ${activeClass.role} · ${activeClass.room}` : '添加班级后开始管理学生信息'}</p></div><div className="hero-actions"><button className="secondary" onClick={onEditClass}><Settings size={18} />修改班级</button><button className="secondary" onClick={onAddClass}><Plus size={18} />添加班级</button><button className="secondary" onClick={onImport}><Upload size={18} />表格导入</button><button className="primary" onClick={onAdd}><UserPlus size={18} />添加学生</button></div></section>
     <div className="class-switch-row">{classes.map(item => <button className={item.id === activeClassId ? 'active' : ''} key={item.id} onClick={() => onClassChange(item.id)}><span>{item.name}</span><small>{item.subject} · {item.role}</small></button>)}<button className="add" onClick={onAddClass}><Plus size={17} /><span>新班级</span></button></div>
-    <div className="class-summary"><div><strong>{students.length}</strong><span>学生总数</span></div><div><strong>98.2%</strong><span>本周出勤</span></div><div><strong>6</strong><span>班级干部</span></div><div><strong>3</strong><span>本月生日</span></div><span className="class-view"><button className={view === 'table' ? 'active' : ''} onClick={() => setView('table')}>列表</button><button className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')}>卡片</button></span></div>
-    {students.length === 0 ? <Empty icon={Users} title="没有匹配的学生" text="更换关键词后再试" /> : view === 'table' ? <section className="table-card"><table><thead><tr><th>学生</th><th>学号</th><th>班级角色</th><th>家长</th><th>出勤率</th><th /></tr></thead><tbody>{students.map(s => <tr key={s.id}><td><div className={`student-avatar ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(-1)}</div><b>{s.name}</b></td><td>{s.number}</td><td><div className="tags">{s.tags.length ? s.tags.map(t => <span key={t}>{t}</span>) : <i>—</i>}</div></td><td><b className="subtle">{s.guardian}</b><small>{s.phone}</small></td><td><div className="attendance"><i><em style={{ width: `${s.attendance}%` }} /></i><b>{s.attendance}%</b></div></td><td><button className="icon-btn"><MoreHorizontal /></button></td></tr>)}</tbody></table></section> : <div className="student-cards">{students.map(s => <article key={s.id}><div className={`student-avatar big ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(-1)}</div><h3>{s.name}</h3><span>{s.number}</span><div className="tags">{s.tags.map(t => <span key={t}>{t}</span>)}</div><footer><span>出勤 <b>{s.attendance}%</b></span><button>查看档案</button></footer></article>)}</div>}
+    <div className="class-summary"><div><strong>{students.length}</strong><span>学生总数</span></div><div><strong>{attendance}</strong><span>本周出勤</span></div><div><strong>{leaders}</strong><span>班级干部</span></div><div><strong>—</strong><span>本月生日</span></div><span className="class-view"><button className={view === 'table' ? 'active' : ''} onClick={() => setView('table')}>列表</button><button className={view === 'cards' ? 'active' : ''} onClick={() => setView('cards')}>卡片</button></span></div>
+    {students.length === 0 ? <Empty icon={Users} title={hasSearch ? '没有匹配的学生' : '这个班级还没有学生'} text={hasSearch ? '更换关键词后再试' : '可以添加学生，或直接从表格批量导入'} /> : view === 'table' ? <section className="table-card"><table><thead><tr><th>学生</th><th>学号</th><th>班级角色</th><th>家长</th><th>出勤率</th><th /></tr></thead><tbody>{students.map(s => <tr key={s.id}><td><div className={`student-avatar ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(0, 1)}</div><b>{s.name}</b></td><td>{s.number}</td><td><div className="tags">{s.tags.length ? s.tags.map(t => <span key={t}>{t}</span>) : <i>—</i>}</div></td><td><b className="subtle">{s.guardian}</b><small>{s.phone}</small></td><td><div className="attendance"><i><em style={{ width: `${s.attendance}%` }} /></i><b>{s.attendance}%</b></div></td><td><button aria-label={`修改${s.name}信息`} className="icon-btn" onClick={() => onEditStudent(s)}><MoreHorizontal /></button></td></tr>)}</tbody></table></section> : <div className="student-cards">{students.map(s => <article key={s.id}><div className={`student-avatar big ${s.gender === '女' ? 'girl' : ''}`}>{s.name.slice(0, 1)}</div><h3>{s.name}</h3><span>{s.number}</span><div className="tags">{s.tags.map(t => <span key={t}>{t}</span>)}</div><footer><span>出勤 <b>{s.attendance}%</b></span><button onClick={() => onEditStudent(s)}>查看档案</button></footer></article>)}</div>}
   </div>
 }
 
@@ -545,7 +545,7 @@ function Tasks({ data, onNew, onQr, onScan }: { data: AppData; onNew: () => void
   return <div className="page-stack"><section className="page-hero qr-hero"><div><span className="section-kicker">QR PUBLISHING</span><h2>发布中心</h2><p>信息、图片、打卡、报名和各种接龙，都能生成二维码发布并自动回收</p><div className="privacy-pill"><ShieldCheck size={16} />同一局域网内自动同步到老师端</div></div><div className="hero-actions"><button className="secondary light" onClick={onScan}><ScanLine size={18} />收取备用反馈</button><button className="primary gold" onClick={onNew}><Plus size={18} />新建发布</button></div></section>
     <div className="publish-types">{['信息收集', '图片收集', '打卡任务', '接龙报名', '确认回执'].map(item => <button key={item} onClick={onNew}><QrCode size={17} /><span>{item}</span></button>)}</div>
     <div className="task-layout"><section className="task-list panel"><header><h3>已发布内容</h3><span>{data.tasks.length}</span></header>{data.tasks.map(t => { const pct = Math.round(t.completed / t.total * 100); return <button className={current?.id === t.id ? 'active' : ''} key={t.id} onClick={() => setCurrent(t)}><span className="task-icon"><QrCode /></span><div><b>{t.title}</b><small>{t.kind || '信息收集'} · {t.completed}/{t.total} 人</small><i><em style={{ width: `${pct}%` }} /></i></div><strong>{pct}%</strong></button>})}</section>
-      <section className="panel task-detail">{current ? <><header><div><span className="status-dot">{current.kind || '信息收集'} · 进行中</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>待提交</span></div><div><strong>{Math.round(current.completed / current.total * 100)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>自动同步记录</h4><button onClick={onScan}><ScanLine size={16} />收取备用反馈</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(-1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已同步</em></div>)}</div> : <Empty icon={ClipboardCheck} title="等待第一份反馈" text="学生提交后会自动显示在这里" />}</> : <Empty icon={QrCode} title="还没有发布内容" text="点击右上角开始发布" />}</section>
+      <section className="panel task-detail">{current ? <><header><div><span className="status-dot">{current.kind || '信息收集'} · 进行中</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>待提交</span></div><div><strong>{Math.round(current.completed / current.total * 100)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>自动同步记录</h4><button onClick={onScan}><ScanLine size={16} />收取备用反馈</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(0, 1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已同步</em></div>)}</div> : <Empty icon={ClipboardCheck} title="等待第一份反馈" text="学生提交后会自动显示在这里" />}</> : <Empty icon={QrCode} title="还没有发布内容" text="点击右上角开始发布" />}</section>
     </div>
   </div>
 }
@@ -631,7 +631,7 @@ type VoiceRecognition = {
 
 type VoiceRecognitionCtor = new () => VoiceRecognition
 
-function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; total: number; onClose: () => void; onPublish: (task: Task) => void }) {
+function VoiceAssistant({ todos, total, audience, onClose, onPublish }: { todos: Todo[]; total: number; audience: string; onClose: () => void; onPublish: (task: Task) => void }) {
   const [listening, setListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [reply, setReply] = useState('我在。你可以问我接下来要做什么，或直接发布简单任务。')
@@ -731,12 +731,12 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
         description: '由小昕语音助手快速发布，请按要求完成并提交确认。',
         due: nextDue(raw),
         fields: ['是否完成', '备注'],
-        audience: '高一（3）班',
+        audience,
         created: new Date().toISOString().slice(0, 10),
         completed: 0,
         total
       }
-      const message = `已为高一三班发布任务：${title}。截止时间是${task.due.slice(5)}。`
+      const message = `已为${audience}发布任务：${title}。截止时间是${task.due.slice(5)}。`
       setReply(message)
       speak(message)
       window.setTimeout(() => onPublish(task), 900)
@@ -829,14 +829,14 @@ function VoiceAssistant({ todos, total, onClose, onPublish }: { todos: Todo[]; t
   </div>
 }
 
-function NewClass({ onClose, onSave }: { onClose: () => void; onSave: (item: SchoolClass) => void }) {
-  const [form, setForm] = useState({ name: '', role: '班主任', subject: '数学', studentCount: 45, room: '', next: '暂无日程' })
-  return <Modal title="添加班级" onClose={onClose}><form className="modal-form" onSubmit={event => { event.preventDefault(); onSave({ id: uid('c'), ...form }) }}>
+function NewClass({ initial, onClose, onSave }: { initial?: SchoolClass; onClose: () => void; onSave: (item: SchoolClass) => void }) {
+  const [form, setForm] = useState({ name: initial?.name || '', role: initial?.role || '班主任', subject: initial?.subject || '数学', studentCount: initial?.studentCount || 0, room: initial?.room || '', next: initial?.next || '暂无日程' })
+  return <Modal title={initial ? '修改班级信息' : '添加班级'} onClose={onClose}><form className="modal-form" onSubmit={event => { event.preventDefault(); onSave({ id: initial?.id || uid('c'), ...form }) }}>
     <label>班级名称<input autoFocus required value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="例如：高一（4）班" /></label>
     <div className="form-grid"><label>我的身份<select value={form.role} onChange={event => setForm({ ...form, role: event.target.value })}><option>班主任</option><option>任课教师</option><option>年级负责人</option></select></label><label>任教学科<input value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} /></label></div>
     <div className="form-grid"><label>学生人数<input type="number" min="0" value={form.studentCount} onChange={event => setForm({ ...form, studentCount: Number(event.target.value) })} /></label><label>教室位置<input value={form.room} onChange={event => setForm({ ...form, room: event.target.value })} placeholder="例如：博学楼 304" /></label></div>
     <label>下一项班级日程<input value={form.next} onChange={event => setForm({ ...form, next: event.target.value })} placeholder="例如：班会 · 周五 15:30" /></label>
-    <footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">添加班级</button></footer>
+    <footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">{initial ? '保存修改' : '添加班级'}</button></footer>
   </form></Modal>
 }
 
@@ -857,12 +857,12 @@ function NewTodo({ onClose, onSave }: { onClose: () => void; onSave: (t: Todo) =
   return <Modal title="新建待办" onClose={onClose}><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('t'), ...form, done: false }) }}><label>事项名称<input autoFocus required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：收齐家长会回执" /></label><div className="form-grid"><label>日期<select value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}><option>今天</option><option>明天</option><option>本周五</option></select></label><label>时间<input type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></label></div><div className="form-grid"><label>优先级<select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value as Todo['priority'] })}><option>紧急</option><option>重要</option><option>普通</option></select></label><label>来源<input value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} /></label></div><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">保存待办</button></footer></form></Modal>
 }
 
-function NewStudent({ onClose, onSave }: { onClose: () => void; onSave: (s: Student) => void }) {
-  const [form, setForm] = useState({ name: '', number: '', gender: '男' as Student['gender'], phone: '', guardian: '' })
-  return <Modal title="添加学生" onClose={onClose}><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('s'), ...form, tags: [], attendance: 100 }) }}><div className="form-grid"><label>姓名<input required autoFocus value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label><label>学号<input required value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} /></label></div><div className="form-grid"><label>性别<select value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value as Student['gender'] })}><option>男</option><option>女</option></select></label><label>家长姓名<input value={form.guardian} onChange={e => setForm({ ...form, guardian: e.target.value })} /></label></div><label>联系电话<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="仅保存在本机" /></label><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">加入班级</button></footer></form></Modal>
+function NewStudent({ classId, initial, onClose, onSave }: { classId: string; initial?: Student; onClose: () => void; onSave: (s: Student) => void }) {
+  const [form, setForm] = useState({ name: initial?.name || '', number: initial?.number || '', gender: initial?.gender || '男' as Student['gender'], phone: initial?.phone || '', guardian: initial?.guardian || '', tags: initial?.tags.join('、') || '', attendance: initial?.attendance ?? 100 })
+  return <Modal title={initial ? '修改学生信息' : '添加学生'} onClose={onClose}><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: initial?.id || uid('s'), classId, name: form.name, number: form.number, gender: form.gender, phone: form.phone, guardian: form.guardian, tags: form.tags.split(/[、,，]/).map(item => item.trim()).filter(Boolean), attendance: form.attendance }) }}><div className="profile-editor-head"><div className={`student-avatar big ${form.gender === '女' ? 'girl' : ''}`}>{form.name.slice(0, 1) || '生'}</div><div><b>{initial ? '学生个人档案' : '加入当前班级'}</b><span>头像自动显示学生姓氏</span></div></div><div className="form-grid"><label>姓名<input required autoFocus value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label><label>学号<input required value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} /></label></div><div className="form-grid"><label>性别<select value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value as Student['gender'] })}><option>男</option><option>女</option></select></label><label>家长姓名<input value={form.guardian} onChange={e => setForm({ ...form, guardian: e.target.value })} /></label></div><label>联系电话<input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="仅保存在本机" /></label><div className="form-grid"><label>班级角色与标签<input value={form.tags} onChange={e => setForm({ ...form, tags: e.target.value })} placeholder="例如：班长、数学课代表" /></label><label>出勤率<input type="number" min="0" max="100" value={form.attendance} onChange={e => setForm({ ...form, attendance: Number(e.target.value) })} /></label></div><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary">{initial ? '保存修改' : '加入班级'}</button></footer></form></Modal>
 }
 
-function NewTask({ total, onClose, onSave }: { total: number; onClose: () => void; onSave: (t: Task) => void }) {
+function NewTask({ total, audience, onClose, onSave }: { total: number; audience: string; onClose: () => void; onSave: (t: Task) => void }) {
   const templates: Record<NonNullable<Task['kind']>, string> = {
     '信息收集': '联系电话\n需要说明的信息\n备注',
     '图片收集': '图片上传\n图片说明',
@@ -870,7 +870,7 @@ function NewTask({ total, onClose, onSave }: { total: number; onClose: () => voi
     '接龙报名': '是否参加\n报名项目\n备注',
     '确认回执': '是否已阅读并确认\n家长签名\n备注'
   }
-  const [form, setForm] = useState({ kind: '信息收集' as NonNullable<Task['kind']>, title: '', description: '', due: '2026-07-31 18:00', fields: templates['信息收集'], audience: '高一（3）班' })
+  const [form, setForm] = useState({ kind: '信息收集' as NonNullable<Task['kind']>, title: '', description: '', due: '2026-07-31 18:00', fields: templates['信息收集'], audience })
   return <Modal title="新建发布" onClose={onClose} wide><form className="modal-form" onSubmit={e => { e.preventDefault(); onSave({ id: uid('q'), kind: form.kind, title: form.title, description: form.description, due: form.due, fields: form.fields.split('\n').map(x => x.trim()).filter(Boolean), audience: form.audience, created: new Date().toISOString().slice(0, 10), completed: 0, total }) }}><div className="offline-hint"><QrCode /><div><b>二维码发布与自动回收</b><span>学生无需账号，扫码填写后在同一局域网内自动同步到老师端。</span></div></div><label>发布类型<div className="publish-kind-grid">{(Object.keys(templates) as Array<NonNullable<Task['kind']>>).map(kind => <button type="button" className={form.kind === kind ? 'active' : ''} key={kind} onClick={() => setForm({ ...form, kind, fields: templates[kind] })}>{kind}</button>)}</div></label><label>发布标题<input required autoFocus value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={form.kind === '图片收集' ? '例如：暑期实践照片收集' : form.kind === '打卡任务' ? '例如：每日阅读打卡' : '例如：家长会参会确认'} /></label><label>说明<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="向学生或家长说明填写要求" /></label><div className="form-grid"><label>发布对象<input value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })} /></label><label>截止时间<input value={form.due} onChange={e => setForm({ ...form, due: e.target.value })} /></label></div><label>学生需要填写的内容 <small>每行一个字段，含“图片”或“照片”时自动显示拍照上传</small><textarea required value={form.fields} onChange={e => setForm({ ...form, fields: e.target.value })} /></label><footer><button type="button" className="secondary" onClick={onClose}>取消</button><button className="primary"><QrCode size={17} />生成发布二维码</button></footer></form></Modal>
 }
 
@@ -905,10 +905,10 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
   return <Modal title="收取学生反馈" onClose={() => { controlsRef.current?.stop(); onClose() }}><div className="scan-box"><span><ScanLine /></span><h3>扫描学生的反馈二维码</h3><p>将学生手机上的反馈码对准摄像头，识别后自动入库。</p>{scanning && <video ref={videoRef} className="scanner-video" muted playsInline />}{!scanning && <button className="camera-start" onClick={startScan}><ScanLine size={19} />打开摄像头扫码</button>}<div className="scan-divider"><i />或使用扫码枪 / 粘贴<i /></div><textarea value={code} onChange={e => setCode(e.target.value)} placeholder="扫描或粘贴反馈码内容" /><button className="primary full" disabled={!code} onClick={() => parse()}><ClipboardCheck size={18} />识别并收录</button>{error && <em className="form-error">{error}</em>}</div></Modal>
 }
 
-function ImportStudents({ onClose, onImport }: { onClose: () => void; onImport: (s: Student[]) => void }) {
+function ImportStudents({ classId, onClose, onImport }: { classId: string; onClose: () => void; onImport: (s: Student[]) => void }) {
   const [text, setText] = useState('')
   const rows = useMemo(() => text.split('\n').map(x => x.trim()).filter(Boolean), [text])
-  return <Modal title="批量导入学生" onClose={onClose} wide><div className="modal-form"><div className="offline-hint"><Upload /><div><b>从 Excel 直接复制</b><span>按“姓名、学号、性别、家长、电话”五列复制后粘贴，无需逐条输入。</span></div></div><label>粘贴表格内容<textarea className="import-area" value={text} onChange={e => setText(e.target.value)} placeholder={'林知夏\t20240101\t女\t林建国\t13800000000\n周予安\t20240102\t男\t周明\t13900000000'} /></label><p className="preview-count">已识别 <b>{rows.length}</b> 行</p><footer><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={!rows.length} onClick={() => onImport(rows.map(row => { const [name = '', number = '', gender = '男', guardian = '', phone = ''] = row.split(/\t|,/); return { id: uid('s'), name, number, gender: gender === '女' ? '女' : '男', guardian, phone, tags: [], attendance: 100 } }))}>确认导入</button></footer></div></Modal>
+  return <Modal title="批量导入学生" onClose={onClose} wide><div className="modal-form"><div className="offline-hint"><Upload /><div><b>从 Excel 直接复制</b><span>按“姓名、学号、性别、家长、电话”五列复制后粘贴，无需逐条输入。</span></div></div><label>粘贴表格内容<textarea className="import-area" value={text} onChange={e => setText(e.target.value)} placeholder={'林知夏\t20240101\t女\t林建国\t13800000000\n周予安\t20240102\t男\t周明\t13900000000'} /></label><p className="preview-count">已识别 <b>{rows.length}</b> 行</p><footer><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={!rows.length} onClick={() => onImport(rows.map(row => { const [name = '', number = '', gender = '男', guardian = '', phone = ''] = row.split(/\t|,/); return { id: uid('s'), classId, name, number, gender: gender === '女' ? '女' : '男', guardian, phone, tags: [], attendance: 100 } }))}>确认导入</button></footer></div></Modal>
 }
 
 function UploadMaterial({ onClose, onSave }: { onClose: () => void; onSave: (m: AppData['materials'][number]) => void }) {

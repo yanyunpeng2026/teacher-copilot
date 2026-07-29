@@ -1,5 +1,6 @@
 export type Student = {
   id: string
+  classId: string
   name: string
   number: string
   gender: '男' | '女'

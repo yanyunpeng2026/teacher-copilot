@@ -3,18 +3,29 @@ import { initialData } from './data'
 
 const KEY = 'zhixu_teacher_data_v1'
 
+export function normalizeData(value: Partial<AppData>, fallback: AppData = initialData): AppData {
+  const classes = value.classes?.length ? value.classes : fallback.classes
+  const defaultClassId = classes[0]?.id || initialData.classes[0].id
+  const students = (value.students ?? fallback.students).map(student => ({
+    ...student,
+    classId: student.classId && classes.some(item => item.id === student.classId) ? student.classId : defaultClassId
+  }))
+  return {
+    ...fallback,
+    ...value,
+    students,
+    classes,
+    profile: { ...fallback.profile, ...value.profile },
+    directories: value.directories?.length ? value.directories : fallback.directories
+  }
+}
+
 export function loadData(): AppData {
   const value = localStorage.getItem(KEY)
   if (!value) return initialData
   try {
     const parsed = JSON.parse(value) as Partial<AppData>
-    return {
-      ...initialData,
-      ...parsed,
-      classes: parsed.classes?.length ? parsed.classes : initialData.classes,
-      profile: { ...initialData.profile, ...parsed.profile },
-      directories: parsed.directories?.length ? parsed.directories : initialData.directories
-    }
+    return normalizeData(parsed)
   } catch {
     return initialData
   }

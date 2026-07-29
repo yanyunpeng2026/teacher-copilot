@@ -16,12 +16,12 @@ export const initialData: AppData = {
   ],
   directories: ['班级管理', '教学资料', '职称评审', '常用模板'],
   students: [
-    { id: 's1', name: '林知夏', number: '20240101', gender: '女', phone: '138****2190', guardian: '林建国', tags: ['班长', '语文课代表'], attendance: 98, },
-    { id: 's2', name: '周予安', number: '20240102', gender: '男', phone: '139****7041', guardian: '周明', tags: ['数学课代表'], attendance: 96 },
-    { id: 's3', name: '陈屿', number: '20240103', gender: '男', phone: '137****6308', guardian: '陈海', tags: ['体育委员'], attendance: 92 },
-    { id: 's4', name: '沈乐言', number: '20240104', gender: '女', phone: '136****9822', guardian: '沈静', tags: ['宣传委员'], attendance: 99 },
-    { id: 's5', name: '顾一诺', number: '20240105', gender: '女', phone: '135****1226', guardian: '顾诚', tags: ['英语课代表'], attendance: 97 },
-    { id: 's6', name: '许嘉树', number: '20240106', gender: '男', phone: '188****5603', guardian: '许文', tags: [], attendance: 95 }
+    { id: 's1', classId: 'c1', name: '林知夏', number: '20240101', gender: '女', phone: '138****2190', guardian: '林建国', tags: ['班长', '语文课代表'], attendance: 98, },
+    { id: 's2', classId: 'c1', name: '周予安', number: '20240102', gender: '男', phone: '139****7041', guardian: '周明', tags: ['数学课代表'], attendance: 96 },
+    { id: 's3', classId: 'c1', name: '陈屿', number: '20240103', gender: '男', phone: '137****6308', guardian: '陈海', tags: ['体育委员'], attendance: 92 },
+    { id: 's4', classId: 'c1', name: '沈乐言', number: '20240104', gender: '女', phone: '136****9822', guardian: '沈静', tags: ['宣传委员'], attendance: 99 },
+    { id: 's5', classId: 'c1', name: '顾一诺', number: '20240105', gender: '女', phone: '135****1226', guardian: '顾诚', tags: ['英语课代表'], attendance: 97 },
+    { id: 's6', classId: 'c1', name: '许嘉树', number: '20240106', gender: '男', phone: '188****5603', guardian: '许文', tags: [], attendance: 95 }
   ],
   todos: [
     { id: 't1', title: '提交期中质量分析', date: '今天', time: '16:00', priority: '紧急', done: false, source: '教务处' },
