@@ -58,6 +58,21 @@ function Empty({ icon: Icon, title, text }: { icon: typeof Archive; title: strin
   return <div className="empty"><Icon size={32} /><b>{title}</b><span>{text}</span></div>
 }
 
+function formatToday(date: Date) {
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  return `${date.getMonth() + 1}月${date.getDate()}日 · 星期${weekdays[date.getDay()]}`
+}
+
+function greetingFor(date: Date) {
+  const hour = date.getHours()
+  if (hour < 6) return { text: '夜深了', icon: '🌙' }
+  if (hour < 9) return { text: '早上好', icon: '🌤️' }
+  if (hour < 12) return { text: '上午好', icon: '☀' }
+  if (hour < 14) return { text: '中午好', icon: '🌿' }
+  if (hour < 18) return { text: '下午好', icon: '☀' }
+  return { text: '晚上好', icon: '🌙' }
+}
+
 function StudentTask() {
   const [payload, setPayload] = useState<{ task: Task } | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
@@ -367,28 +382,48 @@ function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAdd
   const next = pending[0]
   const task = data.tasks[0]
   const progress = task ? Math.round(task.completed / task.total * 100) : 0
+  const urgentCount = pending.filter(todo => todo.priority === '紧急').length
   const careStates = [
     { id: 'water', title: '喝口温水吧', text: '忙碌的时候，也别忘了照顾自己。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-water.webp` },
     { id: 'stretch', title: '起来伸展一下', text: '活动肩颈，让眼睛也休息一会儿。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-stretch.webp` },
     { id: 'care', title: '心情最重要', text: '事情慢慢做，你已经很认真了。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-care.webp` }
   ]
   const [careIndex, setCareIndex] = useState(0)
+  const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const timer = window.setInterval(() => setCareIndex(index => (index + 1) % careStates.length), 9000)
     return () => window.clearInterval(timer)
   }, [careStates.length])
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60000)
+    return () => window.clearInterval(timer)
+  }, [])
   const activeCare = careStates[careIndex]
+  const greeting = greetingFor(now)
+  const schedules = [
+    { time: '08:00', title: '晨会与班级巡视' },
+    { time: '10:10', title: '数学课' },
+    { time: '14:30', title: '年级教研' },
+    { time: '16:00', title: '提交质量分析' }
+  ]
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  const nextMinutes = next?.date === '今天' ? next.time.split(':').map(Number) : null
+  const nextOverdue = nextMinutes ? nextMinutes[0] * 60 + nextMinutes[1] < currentMinutes : false
+  const nextSchedule = schedules.find(item => {
+    const [hour, minute] = item.time.split(':').map(Number)
+    return hour * 60 + minute >= currentMinutes
+  })
   const glance = [
-    { value: pending.length, label: '待办', note: '1项紧急', className: 'coral' },
-    { value: '14:30', label: '下一日程', note: '年级教研', className: 'violet' },
+    { value: pending.length, label: '待办', note: urgentCount ? `${urgentCount}项紧急` : '从容处理', className: 'coral' },
+    { value: nextSchedule?.time || '已结束', label: '下一日程', note: nextSchedule?.title || '安心收尾', className: 'violet' },
     { value: `${progress}%`, label: '任务回收', note: task ? `${task.completed}/${task.total}人` : '暂无任务', className: 'mint' }
   ]
 
   return <div className="mobile-today">
     <section className="mobile-greeting">
       <div className="mobile-greeting-copy">
-        <span className="mobile-date">7月28日 · 星期二</span>
-        <h2>下午好，{data.profile.name} <i>☀</i></h2>
+        <span className="mobile-date">{formatToday(now)}</span>
+        <h2>{greeting.text}，{data.profile.name} <i>{greeting.icon}</i></h2>
         <p>{data.profile.motto}</p>
       </div>
       <div className="greeting-tip"><Sparkles size={14} /><span>今日心情 · 平静</span></div>
@@ -413,9 +448,9 @@ function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAdd
       <button onClick={() => setPage('class')}><span className="quick-icon class"><Users /></span><b>班级管理</b><small>{data.classes.length} 个班级</small></button>
     </section>
 
-    <div className="today-section-head"><div><span>现在</span><h3>下一件事</h3></div><button onClick={() => setPage('todos')}>全部待办</button></div>
+    <div className="today-section-head"><div><span>{nextOverdue ? '需要关注' : '现在'}</span><h3>{nextOverdue ? '已超时待办' : '下一件事'}</h3></div><button onClick={() => setPage('todos')}>全部待办</button></div>
     {next ? <section className="next-card" onClick={() => setPage('todos')}>
-      <div className="next-time"><Clock3 size={18} /><strong>{next.time}</strong><span>{next.date}</span></div>
+      <div className="next-time"><Clock3 size={18} /><strong>{next.time}</strong><span>{nextOverdue ? '已超时' : next.date}</span></div>
       <div className="next-copy"><span className="next-priority">{next.priority}</span><h3>{next.title}</h3><p>{next.source} · 预计 15 分钟</p></div>
       <span className="next-open">›</span>
     </section> : <section className="next-card all-done"><CheckCircle2 /><div><h3>今天的待办完成啦</h3><p>可以安心喝口水，休息一下。</p></div></section>}
@@ -456,9 +491,11 @@ function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAdd
 function Home({ data, setPage, updateTodo, onQr }: { data: AppData; setPage: (p: Page) => void; updateTodo: (id: string) => void; onQr: () => void }) {
   const pending = data.todos.filter(t => !t.done)
   const progress = data.tasks.length ? Math.round(data.tasks[0].completed / data.tasks[0].total * 100) : 0
+  const now = new Date()
+  const greeting = greetingFor(now)
   return <div className="dashboard">
     <section className="welcome">
-      <div><span className="sun">☀</span><h2>下午好，江老师</h2><p>今天有 <b>{pending.length} 项待办</b>，1 项需要优先处理。保持从容，一件件来。</p></div>
+      <div><span className="sun">{greeting.icon}</span><h2>{greeting.text}，{data.profile.name}</h2><p>今天有 <b>{pending.length} 项待办</b>，1 项需要优先处理。保持从容，一件件来。</p></div>
       <button className="primary" onClick={onQr}><QrCode size={19} />发布扫码任务</button>
     </section>
     <div className="metrics">
@@ -474,7 +511,7 @@ function Home({ data, setPage, updateTodo, onQr }: { data: AppData; setPage: (p:
       <section className="panel focus-panel"><header><div><h3>任务回收进度</h3><p>扫码反馈实时汇总</p></div><button className="more"><MoreHorizontal /></button></header>
         {data.tasks[0] ? <><div className="focus-task"><span><QrCode /></span><div><b>{data.tasks[0].title}</b><small>{data.tasks[0].audience} · 截止 {data.tasks[0].due}</small></div></div><div className="progress"><i style={{ width: `${progress}%` }} /></div><div className="progress-meta"><span>已回收 <b>{data.tasks[0].completed}</b> 份</span><span>未提交 <b>{data.tasks[0].total - data.tasks[0].completed}</b> 人</span></div><button className="secondary full" onClick={() => setPage('tasks')}>查看名单与提醒</button></> : <Empty icon={QrCode} title="还没有任务" text="发布后即可查看回收进度" />}
       </section>
-      <section className="panel schedule"><header><div><h3>今日日程</h3><p>7月28日 · 星期二</p></div><CalendarDays size={21} /></header>
+      <section className="panel schedule"><header><div><h3>今日日程</h3><p>{formatToday(now)}</p></div><CalendarDays size={21} /></header>
         {[['08:00', '晨会与班级巡视', '高一（3）班'], ['10:10', '数学课 · 函数单调性', '博学楼 302'], ['14:30', '年级组教研会', '行政楼 201'], ['16:00', '提交质量分析', '线上截止']].map((x, i) => <div className={`schedule-row ${i === 2 ? 'now' : ''}`} key={x[0]}><time>{x[0]}</time><i /><div><b>{x[1]}</b><span>{x[2]}</span></div></div>)}
       </section>
       <section className="panel assistant"><div className="assistant-head"><span><Sparkles /></span><div><h3>智能整理建议</h3><p>基于本地资料生成，不上传内容</p></div></div><div className="suggestion"><WandSparkles size={20} /><div><b>职称材料缺少 2 项佐证</b><p>检测到“公开课证明”和“年度考核表”尚未归档。</p></div></div><button className="secondary full" onClick={() => setPage('career')}>去补充材料</button></section>
