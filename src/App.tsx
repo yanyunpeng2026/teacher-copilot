@@ -11,7 +11,7 @@ import {
 import type { AppData, Feedback, SchoolClass, Student, Task, TeacherProfile, Todo } from './types'
 import { exportData, loadData, normalizeData, saveData } from './storage'
 import { detectSync, fetchFeedback, fetchTask, publishTask, submitFeedback, subscribeFeedback, type SyncState } from './sync'
-import { storeLocalFile } from './fileStore'
+import { getLocalFile, removeLocalFile, storeLocalFile } from './fileStore'
 
 type Page = 'home' | 'class' | 'todos' | 'tasks' | 'materials' | 'career' | 'documents'
 type Toast = { text: string; kind?: 'ok' | 'info' }
@@ -37,6 +37,11 @@ function encodeTask(task: Task) {
 
 function decodePayload(value: string) {
   return JSON.parse(decodeURIComponent(escape(atob(value))))
+}
+
+function isImageField(field: string) {
+  if (/(说明|描述|备注|名称|标题)/.test(field)) return false
+  return /^(图片|照片)$/.test(field) || /(上传|提交|拍摄|拍照).*(图片|照片)|(图片|照片).*(上传|提交)|实践照片|打卡照片|现场照片/.test(field)
 }
 
 function Modal({ title, children, onClose, wide = false }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
@@ -114,6 +119,7 @@ function StudentTask() {
   const [values, setValues] = useState<Record<string, string>>({})
   const [identity, setIdentity] = useState({ student: '', studentNo: '' })
   const [resultQr, setResultQr] = useState('')
+  const [resultPackage, setResultPackage] = useState<{ url: string; name: string } | null>(null)
   const [syncComplete, setSyncComplete] = useState(false)
   const [error, setError] = useState('')
 
@@ -150,10 +156,22 @@ function StudentTask() {
       await submitFeedback(feedback)
       setSyncComplete(true)
     } catch {
-      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ v: 1, type: 'zhixu-feedback', feedback }))))
-      setResultQr(await QRCode.toDataURL(encoded, { width: 340, margin: 2, color: { dark: '#173f36', light: '#ffffff' } }))
+      const qrPayload = JSON.stringify({ v: 1, type: 'zhixu-feedback', feedback })
+      try {
+        const encoded = btoa(unescape(encodeURIComponent(qrPayload)))
+        setResultQr(await QRCode.toDataURL(encoded, { width: 340, margin: 2, color: { dark: '#173f36', light: '#ffffff' } }))
+      } catch {
+        const packagePayload = JSON.stringify({ v: 1, type: 'zhixin-feedback-package', feedback })
+        const blob = new Blob([packagePayload], { type: 'application/json' })
+        const safeTitle = payload.task.title.replace(/[\\/:*?"<>|]/g, '-')
+        setResultPackage({ url: URL.createObjectURL(blob), name: `${safeTitle}-${feedback.student}.zhixin` })
+      }
     }
   }
+
+  useEffect(() => () => {
+    if (resultPackage) URL.revokeObjectURL(resultPackage.url)
+  }, [resultPackage])
 
   function selectImage(field: string, file?: File) {
     if (!file) return
@@ -189,6 +207,15 @@ function StudentTask() {
             <div className="sync-receipt"><CheckCircle2 size={20} /><div><b>老师端已接收</b><span>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div></div>
             <div className="privacy-note"><ShieldCheck size={17} />仅在校园局域网内传输 · 未上传云端</div>
           </div>
+        ) : resultPackage ? (
+          <div className="result-card package-result">
+            <span className="success-icon"><FileArchive size={32} /></span>
+            <h1>填写完成</h1>
+            <p>图片内容较大，无法放进二维码。请保存反馈文件，再通过隔空投送或 U 盘交给老师导入。</p>
+            <a className="primary package-download" href={resultPackage.url} download={resultPackage.name}><Download size={18} />保存反馈文件</a>
+            <div className="package-name"><FileText size={16} />{resultPackage.name}</div>
+            <div className="privacy-note"><ShieldCheck size={17} />未上传云端 · 文件由学生自行交给老师</div>
+          </div>
         ) : resultQr ? (
           <div className="result-card">
             <span className="success-icon"><Check size={34} /></span>
@@ -207,7 +234,7 @@ function StudentTask() {
               <label>学号<input required value={identity.studentNo} onChange={e => setIdentity({ ...identity, studentNo: e.target.value })} placeholder="请输入学号" inputMode="numeric" /></label>
             </div>
             {task.fields.map((field, i) => (
-              <label key={field}>{i + 1}. {field}{field.includes('图片') || field.includes('照片') ? <><input required type="file" accept="image/*" capture="environment" onChange={event => selectImage(field, event.target.files?.[0])} />{values[field] && <span className="image-ready"><Check size={14} />图片已准备，提交后自动同步</span>}</> : <input required value={values[field] || ''} onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder={`请填写${field}`} />}</label>
+              <label key={field}>{i + 1}. {field}{isImageField(field) ? <><input required type="file" accept="image/*" capture="environment" onChange={event => selectImage(field, event.target.files?.[0])} />{values[field] && <span className="image-ready"><Check size={14} />图片已准备，提交后自动同步</span>}</> : <input required value={values[field] || ''} onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder={`请填写${field}`} />}</label>
             ))}
             <button className="primary submit-btn" type="submit"><CheckCircle2 size={18} />提交给老师</button>
           </form>
@@ -592,8 +619,13 @@ function Materials({ data, setData }: { data: AppData; setData: React.Dispatch<R
   const [directory, setDirectory] = useState('全部文档')
   const [creating, setCreating] = useState(false)
   const [folderName, setFolderName] = useState('')
+  const [selected, setSelected] = useState<AppData['materials'][number] | null>(null)
+  const [targetDirectory, setTargetDirectory] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
+  const rebindInput = useRef<HTMLInputElement>(null)
   const shown = data.materials.filter(item => directory === '全部文档' || item.category === directory || item.category.startsWith(`${directory}/`))
 
   async function importFiles(files: FileList | null, preserveFolders: boolean) {
@@ -632,9 +664,89 @@ function Materials({ data, setData }: { data: AppData; setData: React.Dispatch<R
     setCreating(false)
   }
 
+  function showActions(item: AppData['materials'][number]) {
+    setSelected(item)
+    setTargetDirectory(item.category)
+    setActionMessage('')
+    setConfirmRemove(false)
+  }
+
+  async function resolveSelectedFile() {
+    if (!selected?.storageKey) return undefined
+    return getLocalFile(selected.storageKey)
+  }
+
+  async function openSelected() {
+    if (!selected) return
+    const preview = window.open('', '_blank')
+    const file = await resolveSelectedFile()
+    if (!file) {
+      preview?.close()
+      setActionMessage('没有找到源文件，请重新绑定本机文件。')
+      return
+    }
+    const url = URL.createObjectURL(file)
+    if (preview) preview.location.href = url
+    else {
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.target = '_blank'
+      anchor.click()
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  }
+
+  async function downloadSelected() {
+    if (!selected) return
+    const file = await resolveSelectedFile()
+    if (!file) {
+      setActionMessage('没有找到源文件，请重新绑定后再保存副本。')
+      return
+    }
+    const url = URL.createObjectURL(file)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = selected.name
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function rebindSelected(file?: File) {
+    if (!selected || !file) return
+    const storageKey = selected.storageKey || selected.id
+    await storeLocalFile(storageKey, file)
+    const size = file.size > 1024 * 1024 ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`
+    setData(current => ({ ...current, materials: current.materials.map(item => item.id === selected.id ? { ...item, name: file.name, storageKey, size, updated: '刚刚', path: `${item.category}/${file.name}` } : item) }))
+    setSelected(current => current ? { ...current, name: file.name, storageKey, size, updated: '刚刚' } : current)
+    setActionMessage('本机源文件已重新绑定。')
+  }
+
+  function moveSelected() {
+    if (!selected || !targetDirectory) return
+    setData(current => ({ ...current, materials: current.materials.map(item => item.id === selected.id ? { ...item, category: targetDirectory, path: `${targetDirectory}/${item.name}`, updated: '刚刚' } : item) }))
+    setSelected(current => current ? { ...current, category: targetDirectory, path: `${targetDirectory}/${current.name}`, updated: '刚刚' } : current)
+    setActionMessage(`已移动到“${targetDirectory}”。`)
+  }
+
+  async function removeSelected() {
+    if (!selected) return
+    if (selected.storageKey) await removeLocalFile(selected.storageKey)
+    setData(current => ({ ...current, materials: current.materials.filter(item => item.id !== selected.id) }))
+    setSelected(null)
+  }
+
   return <div className="page-stack document-library"><section className="page-hero compact"><div><span className="section-kicker">LOCAL DOCUMENT LIBRARY</span><h2>资料文档库</h2><p>自己建立目录，文件与文件夹完整保存在本机</p></div><div className="hero-actions"><button className="secondary" onClick={() => setCreating(true)}><Plus size={18} />新建目录</button><button className="secondary" onClick={() => folderInput.current?.click()}><FolderOpen size={18} />上传文件夹</button><button className="primary" onClick={() => fileInput.current?.click()}><Upload size={18} />上传文件</button></div><input ref={fileInput} hidden type="file" multiple onChange={event => { void importFiles(event.target.files, false); event.target.value = '' }} /><input ref={folderInput} hidden type="file" multiple {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} onChange={event => { void importFiles(event.target.files, true); event.target.value = '' }} /></section>
     <div className="material-layout"><aside className="category-panel panel"><header><h3>我的目录</h3><button onClick={() => setCreating(true)}><Plus size={16} /></button></header><button className={directory === '全部文档' ? 'active' : ''} onClick={() => setDirectory('全部文档')}><Archive size={17} />全部文档<span>{data.materials.length}</span></button>{data.directories.map(item => <button key={item} className={directory === item ? 'active' : ''} onClick={() => setDirectory(item)}><FolderOpen size={17} />{item}<span>{data.materials.filter(file => file.category === item || file.category.startsWith(`${item}/`)).length}</span></button>)}</aside>
-      <section className="panel files"><header><div><span className="library-path">资料文档库 / {directory}</span><h3>{directory}</h3></div><span>{shown.length} 个文件</span></header>{creating && <div className="new-folder-row"><FolderOpen size={20} /><input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createFolder(); if (event.key === 'Escape') setCreating(false) }} placeholder="输入目录名称" /><button className="primary" onClick={createFolder}>建立</button><button className="secondary" onClick={() => setCreating(false)}>取消</button></div>}{shown.length ? shown.map(item => <div className="file-row" key={item.id}><span className={`file-type ${item.name.endsWith('.pdf') ? 'pdf' : item.name.endsWith('.xlsx') ? 'xls' : ''}`}><FileText /></span><div><b>{item.name}</b><span>{item.path || item.category} · {item.size} · {item.updated}</span></div><button className={`icon-btn ${item.starred ? 'starred' : ''}`} onClick={() => setData(current => ({ ...current, materials: current.materials.map(file => file.id === item.id ? { ...file, starred: !file.starred } : file) }))}><Star size={18} /></button><button className="icon-btn"><MoreHorizontal /></button></div>) : <Empty icon={FolderOpen} title="这个目录还是空的" text="上传文件或整个文件夹开始整理" />}</section></div>
+      <section className="panel files"><header><div><span className="library-path">资料文档库 / {directory}</span><h3>{directory}</h3></div><span>{shown.length} 个文件</span></header>{creating && <div className="new-folder-row"><FolderOpen size={20} /><input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createFolder(); if (event.key === 'Escape') setCreating(false) }} placeholder="输入目录名称" /><button className="primary" onClick={createFolder}>建立</button><button className="secondary" onClick={() => setCreating(false)}>取消</button></div>}{shown.length ? shown.map(item => <div className="file-row" key={item.id}><span className={`file-type ${item.name.endsWith('.pdf') ? 'pdf' : item.name.endsWith('.xlsx') ? 'xls' : ''}`}><FileText /></span><div><b>{item.name}</b><span>{item.path || item.category} · {item.size} · {item.updated}</span></div><button aria-label={item.starred ? `取消收藏${item.name}` : `收藏${item.name}`} className={`icon-btn ${item.starred ? 'starred' : ''}`} onClick={() => setData(current => ({ ...current, materials: current.materials.map(file => file.id === item.id ? { ...file, starred: !file.starred } : file) }))}><Star size={18} /></button><button aria-label={`管理${item.name}`} className="icon-btn" onClick={() => showActions(item)}><MoreHorizontal /></button></div>) : <Empty icon={FolderOpen} title="这个目录还是空的" text="上传文件或整个文件夹开始整理" />}</section></div>
+    {selected && <Modal title="文件管理" onClose={() => setSelected(null)}><div className="file-actions">
+      <div className="file-action-head"><span className={`file-type ${selected.name.endsWith('.pdf') ? 'pdf' : selected.name.endsWith('.xlsx') ? 'xls' : ''}`}><FileText /></span><div><b>{selected.name}</b><p>{selected.size} · {selected.updated}</p><small>{selected.storageKey ? '源文件保存在本机' : '当前仅保存文件索引'}</small></div></div>
+      <div className="file-action-grid"><button onClick={() => void openSelected()}><FileText size={18} /><span><b>打开预览</b><small>使用本机应用查看</small></span></button><button onClick={() => void downloadSelected()}><Download size={18} /><span><b>保存副本</b><small>导出到手机或电脑</small></span></button><button onClick={() => rebindInput.current?.click()}><Upload size={18} /><span><b>重新绑定</b><small>源文件丢失时使用</small></span></button></div>
+      <input ref={rebindInput} hidden type="file" onChange={event => { void rebindSelected(event.target.files?.[0]); event.target.value = '' }} />
+      <label className="file-move">移动到目录<div><select value={targetDirectory} onChange={event => setTargetDirectory(event.target.value)}>{data.directories.map(item => <option key={item} value={item}>{item}</option>)}</select><button className="secondary" onClick={moveSelected}>移动</button></div></label>
+      {actionMessage && <div className="file-action-message"><CheckCircle2 size={16} />{actionMessage}</div>}
+      {confirmRemove ? <div className="remove-confirm"><div><b>确定从资料库移除？</b><span>本机保存的源文件也会删除，无法撤销。</span></div><button className="secondary" onClick={() => setConfirmRemove(false)}>取消</button><button className="danger-action" onClick={() => void removeSelected()}>确认移除</button></div> : <button className="remove-entry" onClick={() => setConfirmRemove(true)}>从资料文档库移除</button>}
+      <div className="privacy-note"><ShieldCheck size={17} />文件操作仅在当前设备进行，不上传云端</div>
+    </div></Modal>}
   </div>
 }
 
@@ -918,6 +1030,7 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
   const [scanning, setScanning] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const controlsRef = useRef<IScannerControls | null>(null)
+  const packageInput = useRef<HTMLInputElement>(null)
   useEffect(() => () => controlsRef.current?.stop(), [])
   function parse(value = code) {
     try {
@@ -926,6 +1039,18 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
       controlsRef.current?.stop()
       onImport(parsed.feedback)
     } catch { setError('未识别到有效的知昕反馈码内容') }
+  }
+  async function importPackage(file?: File) {
+    if (!file) return
+    setError('')
+    try {
+      const parsed = JSON.parse(await file.text())
+      if (parsed.type !== 'zhixin-feedback-package' || !parsed.feedback) throw new Error()
+      controlsRef.current?.stop()
+      onImport(parsed.feedback)
+    } catch {
+      setError('未识别到有效的知昕离线反馈文件')
+    }
   }
   async function startScan() {
     setError('')
@@ -940,7 +1065,7 @@ function FeedbackImport({ onClose, onImport }: { onClose: () => void; onImport: 
       setError('无法打开摄像头，请检查系统权限，或使用扫码枪/粘贴方式。')
     }
   }
-  return <Modal title="收取学生反馈" onClose={() => { controlsRef.current?.stop(); onClose() }}><div className="scan-box"><span><ScanLine /></span><h3>扫描学生的反馈二维码</h3><p>将学生手机上的反馈码对准摄像头，识别后自动入库。</p>{scanning && <video ref={videoRef} className="scanner-video" muted playsInline />}{!scanning && <button className="camera-start" onClick={startScan}><ScanLine size={19} />打开摄像头扫码</button>}<div className="scan-divider"><i />或使用扫码枪 / 粘贴<i /></div><textarea value={code} onChange={e => setCode(e.target.value)} placeholder="扫描或粘贴反馈码内容" /><button className="primary full" disabled={!code} onClick={() => parse()}><ClipboardCheck size={18} />识别并收录</button>{error && <em className="form-error">{error}</em>}</div></Modal>
+  return <Modal title="收取学生反馈" onClose={() => { controlsRef.current?.stop(); onClose() }}><div className="scan-box"><span><ScanLine /></span><h3>扫描学生的反馈二维码</h3><p>将学生手机上的反馈码对准摄像头，识别后自动入库。</p>{scanning && <video ref={videoRef} className="scanner-video" muted playsInline />}{!scanning && <button className="camera-start" onClick={startScan}><ScanLine size={19} />打开摄像头扫码</button>}<div className="scan-divider"><i />或使用扫码枪 / 粘贴<i /></div><textarea value={code} onChange={e => setCode(e.target.value)} placeholder="扫描或粘贴反馈码内容" /><button className="primary full" disabled={!code} onClick={() => parse()}><ClipboardCheck size={18} />识别并收录</button><div className="scan-divider"><i />图片较大时<i /></div><button className="feedback-file-import" onClick={() => packageInput.current?.click()}><FileArchive size={19} /><span><b>导入离线反馈文件</b><small>支持学生交来的 .zhixin 文件</small></span></button><input ref={packageInput} hidden type="file" accept=".zhixin,application/json" onChange={event => { void importPackage(event.target.files?.[0]); event.target.value = '' }} />{error && <em className="form-error">{error}</em>}</div></Modal>
 }
 
 function ImportStudents({ classId, onClose, onImport }: { classId: string; onClose: () => void; onImport: (s: Student[]) => void }) {
