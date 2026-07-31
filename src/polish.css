@@ -596,7 +596,7 @@ tbody tr:hover{background:#f7f9f6}
   .page-home .top-actions{display:flex}
   .page-home .top-actions>*{display:none}
   .page-home .top-actions .alert{display:grid}
-  .content{padding:13px}
+  .content{padding:13px 13px calc(98px + env(safe-area-inset-bottom))}
   .page-home .content{padding-top:2px}
   .welcome{border-radius:18px;padding:21px 18px}
   .welcome h2{font-size:23px}

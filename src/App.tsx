@@ -394,7 +394,31 @@ export default function App() {
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
           {page === 'tasks' && <Tasks data={data} onNew={() => setModal('new-task')} onQr={showTaskQr} onScan={() => setModal('feedback')} />}
           {page === 'materials' && <Materials data={data} setData={setData} />}
-          {page === 'career' && <Career />}
+          {page === 'career' && <Career onImport={() => setModal('upload-material')} onOpenMaterials={() => setPage('materials')} onPlan={() => {
+            const plan = [
+              { title: '补齐市级公开课证明盖章页', priority: '重要' as const },
+              { title: '归档2022年度考核表', priority: '重要' as const },
+              { title: '补充论文检索证明', priority: '普通' as const }
+            ]
+            const missing = plan.filter(item => !data.todos.some(todo => todo.title === item.title && !todo.done))
+            setData(current => ({
+              ...current,
+              todos: [
+                ...missing.map((item, index) => ({
+                  id: uid('t'),
+                  title: item.title,
+                  date: index === 0 ? '今天' : '本周五',
+                  time: index === 0 ? '17:30' : '16:00',
+                  priority: item.priority,
+                  done: false,
+                  source: '职称材料'
+                })),
+                ...current.todos
+              ]
+            }))
+            setPage('todos')
+            setToast({ text: missing.length ? `已生成 ${missing.length} 项职称材料待办` : '补齐计划已在待办中', kind: 'ok' })
+          }} />}
           {page === 'documents' && <Documents notify={text => setToast({ text, kind: 'ok' })} />}
         </div>
       </main>
@@ -427,7 +451,7 @@ export default function App() {
       {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => setModal('profile')}><CircleUserRound size={19} /><span><b>个人信息设置</b><small>姓名、学校、任教学科和关怀寄语</small></span></button><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
       {modal === 'reminders' && <ReminderCenter data={data} onClose={() => setModal(null)} onNavigate={setPage} />}
       {modal === 'import-students' && activeClass && <ImportStudents classId={activeClass.id} onClose={() => setModal(null)} onImport={students => { setData(d => ({ ...d, students: [...d.students, ...students] })); setModal(null); setToast({ text: `已向${activeClass.name}导入 ${students.length} 名学生`, kind: 'ok' }) }} />}
-      {modal === 'upload-material' && <UploadMaterial onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '材料索引已保存', kind: 'ok' }) }} />}
+      {modal === 'upload-material' && <UploadMaterial initialCategory="职称评审" onClose={() => setModal(null)} onSave={material => { setData(d => ({ ...d, materials: [material, ...d.materials] })); setModal(null); setToast({ text: '评审文件已保存在本机', kind: 'ok' }) }} />}
     </div>
   )
 }
@@ -750,10 +774,10 @@ function Materials({ data, setData }: { data: AppData; setData: React.Dispatch<R
   </div>
 }
 
-function Career() {
+function Career({ onImport, onOpenMaterials, onPlan }: { onImport: () => void; onOpenMaterials: () => void; onPlan: () => void }) {
   const items: [string, number, number][] = [['基本资格与任职年限', 4, 4], ['教育教学成果', 7, 8], ['教科研与论文', 3, 5], ['公开课与获奖证明', 4, 6], ['年度考核与师德材料', 5, 5]]
   const total = items.reduce((a, x) => a + x[1], 0), max = items.reduce((a, x) => a + x[2], 0)
-  return <div className="page-stack"><section className="career-hero"><div><span className="section-kicker">PROFESSIONAL GROWTH</span><h2>职称评审助手</h2><p>对照申报要求逐项归集，少遗漏、不返工</p><div className="career-meta"><span><Award size={18} />目标：高级教师</span><span><CalendarDays size={18} />预计申报：2026年10月</span></div></div><Ring value={Math.round(total / max * 100)} label="材料完成度" /></section><div className="career-grid"><section className="panel checklist"><header><div><h3>申报材料清单</h3><p>依据本地设置的评审要求</p></div><button className="secondary"><Upload size={17} />导入评审文件</button></header>{items.map(([name, done, all]) => <div className="checklist-row" key={name as string}><span className={done === all ? 'complete' : ''}>{done === all ? <Check /> : <FolderOpen />}</span><div><b>{name}</b><i><em style={{ width: `${Number(done) / Number(all) * 100}%` }} /></i></div><strong>{done}/{all}</strong><button className="icon-btn"><MoreHorizontal /></button></div>)}</section><aside className="panel gap-card"><span className="assistant-orb"><Sparkles /></span><h3>材料缺口提醒</h3><p>当前有 3 项材料建议尽快补齐。</p><div><b>市级公开课证明</b><span>教学成果 · 缺少盖章页</span></div><div><b>近五年年度考核表</b><span>2022年度尚未归档</span></div><div><b>论文检索证明</b><span>教科研 · 建议补充</span></div><button className="primary full">生成补齐计划</button></aside></div></div>
+  return <div className="page-stack"><section className="career-hero"><div><span className="section-kicker">PROFESSIONAL GROWTH</span><h2>职称评审助手</h2><p>对照申报要求逐项归集，少遗漏、不返工</p><div className="career-meta"><span><Award size={18} />目标：高级教师</span><span><CalendarDays size={18} />预计申报：2026年10月</span></div></div><Ring value={Math.round(total / max * 100)} label="材料完成度" /></section><div className="career-grid"><section className="panel checklist"><header><div><h3>申报材料清单</h3><p>依据本地设置的评审要求</p></div><button className="secondary" onClick={onImport}><Upload size={17} />导入评审文件</button></header>{items.map(([name, done, all]) => <div className="checklist-row" key={name as string}><span className={done === all ? 'complete' : ''}>{done === all ? <Check /> : <FolderOpen />}</span><div><b>{name}</b><i><em style={{ width: `${Number(done) / Number(all) * 100}%` }} /></i></div><strong>{done}/{all}</strong><button aria-label={`在资料库查看${name}`} className="icon-btn" onClick={onOpenMaterials}><MoreHorizontal /></button></div>)}</section><aside className="panel gap-card"><span className="assistant-orb"><Sparkles /></span><h3>材料缺口提醒</h3><p>当前有 3 项材料建议尽快补齐。</p><div><b>市级公开课证明</b><span>教学成果 · 缺少盖章页</span></div><div><b>近五年年度考核表</b><span>2022年度尚未归档</span></div><div><b>论文检索证明</b><span>教科研 · 建议补充</span></div><button className="primary full" onClick={onPlan}>生成补齐计划</button></aside></div></div>
 }
 
 function Documents({ notify }: { notify: (x: string) => void }) {
@@ -1074,8 +1098,26 @@ function ImportStudents({ classId, onClose, onImport }: { classId: string; onClo
   return <Modal title="批量导入学生" onClose={onClose} wide><div className="modal-form"><div className="offline-hint"><Upload /><div><b>从 Excel 直接复制</b><span>按“姓名、学号、性别、家长、电话”五列复制后粘贴，无需逐条输入。</span></div></div><label>粘贴表格内容<textarea className="import-area" value={text} onChange={e => setText(e.target.value)} placeholder={'林知夏\t20240101\t女\t林建国\t13800000000\n周予安\t20240102\t男\t周明\t13900000000'} /></label><p className="preview-count">已识别 <b>{rows.length}</b> 行</p><footer><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={!rows.length} onClick={() => onImport(rows.map(row => { const [name = '', number = '', gender = '男', guardian = '', phone = ''] = row.split(/\t|,/); return { id: uid('s'), classId, name, number, gender: gender === '女' ? '女' : '男', guardian, phone, tags: [], attendance: 100 } }))}>确认导入</button></footer></div></Modal>
 }
 
-function UploadMaterial({ onClose, onSave }: { onClose: () => void; onSave: (m: AppData['materials'][number]) => void }) {
+function UploadMaterial({ initialCategory = '班级管理', onClose, onSave }: { initialCategory?: string; onClose: () => void; onSave: (m: AppData['materials'][number]) => void }) {
   const [file, setFile] = useState<File | null>(null)
-  const [category, setCategory] = useState('班级管理')
-  return <Modal title="导入材料" onClose={onClose}><div className="modal-form"><label className="dropzone"><Upload size={28} /><b>{file ? file.name : '选择本机文件'}</b><span>{file ? `${(file.size / 1024).toFixed(0)} KB` : '支持 Word、Excel、PDF 与图片'}</span><input type="file" onChange={e => setFile(e.target.files?.[0] || null)} /></label><label>归档分类<select value={category} onChange={e => setCategory(e.target.value)}><option>班级管理</option><option>教学资料</option><option>职称评审</option><option>常用模板</option></select></label><div className="privacy-note"><ShieldCheck size={17} />仅保存文件索引，不上传文件内容</div><footer><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={!file} onClick={() => file && onSave({ id: uid('m'), name: file.name, category, updated: '刚刚', size: `${(file.size / 1024).toFixed(0)} KB`, starred: false })}>完成归档</button></footer></div></Modal>
+  const [category, setCategory] = useState(initialCategory)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save() {
+    if (!file || saving) return
+    const id = uid('m')
+    const storageKey = `material:${id}`
+    setSaving(true)
+    setError('')
+    try {
+      await storeLocalFile(storageKey, file)
+      onSave({ id, name: file.name, category, storageKey, updated: '刚刚', size: `${(file.size / 1024).toFixed(0)} KB`, starred: false })
+    } catch {
+      setError('本机存储空间不足，文件暂未保存。')
+      setSaving(false)
+    }
+  }
+
+  return <Modal title="导入材料" onClose={onClose}><div className="modal-form"><label className="dropzone"><Upload size={28} /><b>{file ? file.name : '选择本机文件'}</b><span>{file ? `${(file.size / 1024).toFixed(0)} KB` : '支持 Word、Excel、PDF 与图片'}</span><input type="file" onChange={e => setFile(e.target.files?.[0] || null)} /></label><label>归档分类<select value={category} onChange={e => setCategory(e.target.value)}><option>班级管理</option><option>教学资料</option><option>职称评审</option><option>常用模板</option></select></label><div className="privacy-note"><ShieldCheck size={17} />源文件完整保存在本机，不上传云端</div>{error && <em className="form-error">{error}</em>}<footer><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={!file || saving} onClick={() => void save()}>{saving ? '正在保存…' : '完成归档'}</button></footer></div></Modal>
 }
