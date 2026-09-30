@@ -388,7 +388,7 @@ export default function App() {
         <div className="content">
           {page === 'home' && <>
             <div className="desktop-home"><Home data={data} studentTotal={classStudents.length} activeClassName={activeClass?.name || '当前班级'} setPage={setPage} updateTodo={updateTodo} onQr={() => setModal('new-task')} /></div>
-            <div className="mobile-home"><MobileHome data={data} activeClassId={activeClass?.id || ''} setPage={setPage} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} onAddClass={() => setModal('new-class')} /></div>
+            <div className="mobile-home"><MobileHome data={data} activeClassId={activeClass?.id || ''} setPage={setPage} onClassChange={setActiveClassId} onQr={() => setModal('new-task')} onVoice={() => setVoiceOpen(true)} onTodo={() => setModal('new-todo')} onAddClass={() => setModal('new-class')} /></div>
           </>}
           {page === 'class' && <Classroom students={filteredStudents} classes={data.classes} activeClassId={activeClass?.id || ''} hasSearch={Boolean(search)} onClassChange={setActiveClassId} onAddClass={() => setModal('new-class')} onEditClass={() => setModal('edit-class')} onEditStudent={student => { setSelectedStudent(student); setModal('edit-student') }} onAdd={() => setModal('new-student')} onImport={() => setModal('import-students')} />}
           {page === 'todos' && <Todos data={data} updateTodo={updateTodo} onAdd={() => setModal('new-todo')} />}
@@ -433,7 +433,7 @@ export default function App() {
       </nav>
       {toast && <div className={`toast ${toast.kind || ''}`}><CheckCircle2 size={18} />{toast.text}</div>}
       <button className="voice-fab" aria-label="问小昕语音助手" onClick={() => setVoiceOpen(true)}><Mic size={22} /></button>
-      {voiceOpen && <VoiceAssistant todos={data.todos} total={activeClass?.studentCount || classStudents.length} audience={activeClass?.name || '当前班级'} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
+      {voiceOpen && <VoiceAssistant todos={data.todos} total={classStudents.length || activeClass?.studentCount || 0} audience={activeClass?.name || '当前班级'} onClose={() => setVoiceOpen(false)} onPublish={task => { setData(current => ({ ...current, tasks: [task, ...current.tasks] })); setVoiceOpen(false); showTaskQr(task) }} />}
 
       {modal === 'quick' && <Modal title="快速新建" onClose={() => setModal(null)}><div className="quick-grid">
         {[['新建待办', ListTodo, 'new-todo'], ['发布扫码任务', QrCode, 'new-task'], ['添加班级', Users, 'new-class'], ['上传资料文档', Upload, 'go-materials']].map(([label, Icon, key]) => <button key={String(key)} onClick={() => { if (key === 'go-materials') { setPage('materials'); setModal(null) } else setModal(String(key)) }}><Icon size={24} /><b>{String(label)}</b><span>立即开始</span></button>)}
@@ -445,7 +445,7 @@ export default function App() {
       {modal === 'new-class' && <NewClass onClose={() => setModal(null)} onSave={schoolClass => { setData(d => ({ ...d, classes: [...d.classes, schoolClass] })); setActiveClassId(schoolClass.id); setModal(null); setToast({ text: `${schoolClass.name}已添加`, kind: 'ok' }) }} />}
       {modal === 'edit-class' && activeClass && <NewClass initial={activeClass} onClose={() => setModal(null)} onSave={schoolClass => { setData(d => ({ ...d, classes: d.classes.map(item => item.id === schoolClass.id ? schoolClass : item) })); setModal(null); setToast({ text: `${schoolClass.name}信息已更新`, kind: 'ok' }) }} />}
       {modal === 'profile' && <ProfileSettings profile={data.profile} onClose={() => setModal(null)} onSave={profile => { setData(d => ({ ...d, profile })); setModal(null); setToast({ text: '个人信息已保存', kind: 'ok' }) }} />}
-      {modal === 'new-task' && <NewTask total={activeClass?.studentCount || classStudents.length} audience={activeClass?.name || '当前班级'} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
+      {modal === 'new-task' && <NewTask total={classStudents.length || activeClass?.studentCount || 0} audience={activeClass?.name || '当前班级'} onClose={() => setModal(null)} onSave={task => { setData(d => ({ ...d, tasks: [task, ...d.tasks] })); setModal(null); showTaskQr(task) }} />}
       {modal === 'task-qr' && selectedTask && <Modal title="任务发布码" onClose={() => setModal(null)}><div className="qr-panel"><div className="qr-title"><QrCode size={20} /><b>{selectedTask.title}</b></div><img src={qrUrl} alt="任务二维码" /><div className={`qr-sync-state ${sync.connected ? 'online' : ''}`}><span><i />{sync.connected ? '自动回收已开启' : '当前为单机备用模式'}</span><small>{sync.connected ? `学生提交后自动同步至本机 · ${sync.address}` : '启动 Windows 本地服务后可免二次扫码'}</small></div><button className="secondary" onClick={() => { const a = document.createElement('a'); a.href = qrUrl; a.download = `${selectedTask.title}-任务二维码.png`; a.click() }}><Download size={18} />保存二维码</button></div></Modal>}
       {modal === 'feedback' && <FeedbackImport onClose={() => setModal(null)} onImport={feedback => { const exists = data.feedback.some(f => f.id === feedback.id); if (!exists) setData(d => ({ ...d, feedback: [feedback, ...d.feedback], tasks: d.tasks.map(t => t.id === feedback.taskId ? { ...t, completed: Math.min(t.total, t.completed + 1) } : t) })); setModal(null); setToast({ text: exists ? '这份反馈已收录' : `已收录 ${feedback.student} 的反馈`, kind: 'ok' }) }} />}
       {modal === 'settings' && <Modal title="设置与本地备份" onClose={() => setModal(null)}><div className="settings-list"><div><span className="setting-icon"><ShieldCheck /></span><div><b>离线数据模式</b><p>班级、任务与材料索引仅保存在此设备浏览器中。</p></div><em>已开启</em></div><button onClick={() => setModal('profile')}><CircleUserRound size={19} /><span><b>个人信息设置</b><small>姓名、学校、任教学科和关怀寄语</small></span></button><button onClick={() => exportData(data)}><Download size={19} /><span><b>导出完整备份</b><small>保存为加密前的 JSON 数据文件</small></span></button><button onClick={() => fileRef.current?.click()}><Upload size={19} /><span><b>从备份恢复</b><small>导入此前导出的本地文件</small></span></button><input ref={fileRef} hidden type="file" accept=".json" onChange={importBackup} /></div></Modal>}
@@ -456,10 +456,11 @@ export default function App() {
   )
 }
 
-function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAddClass }: {
+function MobileHome({ data, activeClassId, setPage, onClassChange, onQr, onVoice, onTodo, onAddClass }: {
   data: AppData
   activeClassId: string
   setPage: (p: Page) => void
+  onClassChange: (id: string) => void
   onQr: () => void
   onVoice: () => void
   onTodo: () => void
@@ -544,11 +545,11 @@ function MobileHome({ data, activeClassId, setPage, onQr, onVoice, onTodo, onAdd
 
     <div className="today-section-head class-head"><div><span>CLASSROOMS</span><h3>我的班级</h3></div><button onClick={() => setPage('class')}>班级管理</button></div>
     <section className="mobile-classes">
-      {data.classes.map((item, index) => <button className={`mobile-class-card ${['mint', 'coral', 'violet'][index % 3]} ${item.id === activeClassId ? 'active' : ''}`} key={item.id} onClick={() => setPage('class')}>
+      {data.classes.map((item, index) => { const rosterCount = data.students.filter(student => student.classId === item.id).length; return <button className={`mobile-class-card ${['mint', 'coral', 'violet'][index % 3]} ${item.id === activeClassId ? 'active' : ''}`} key={item.id} onClick={() => { onClassChange(item.id); setPage('class') }}>
         <div className="class-card-top"><span>{item.id === activeClassId ? '当前班级' : item.role}</span><Users size={18} /></div>
-        <h3>{item.name}</h3><p>{item.subject} · {item.studentCount} 位学生</p>
+        <h3>{item.name}</h3><p>{item.subject} · {rosterCount ? `${rosterCount} 位学生` : `名单未导入 · 预计 ${item.studentCount} 人`}</p>
         <footer><Clock3 size={13} />{item.next}</footer>
-      </button>)}
+      </button>})}
       <button className="mobile-class-card add-class-card" onClick={onAddClass}><span><Plus size={22} /></span><h3>添加班级</h3><p>建立新的班级工作空间</p></button>
     </section>
 
