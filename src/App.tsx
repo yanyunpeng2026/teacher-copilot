@@ -44,6 +44,15 @@ function isImageField(field: string) {
   return /^(图片|照片)$/.test(field) || /(上传|提交|拍摄|拍照).*(图片|照片)|(图片|照片).*(上传|提交)|实践照片|打卡照片|现场照片/.test(field)
 }
 
+function taskIsOverdue(task: Task, now = new Date()) {
+  const deadline = new Date(task.due.trim().replace(/\s+/, 'T'))
+  return !Number.isNaN(deadline.getTime()) && deadline.getTime() < now.getTime() && task.completed < task.total
+}
+
+function taskProgress(task?: Task | null) {
+  return task?.total ? Math.round(task.completed / task.total * 100) : 0
+}
+
 function Modal({ title, children, onClose, wide = false }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -79,15 +88,18 @@ function ReminderCenter({ data, onClose, onNavigate }: { data: AppData; onClose:
       page: 'todos' as Page
     }
   })
-  const tasks = data.tasks.filter(task => task.completed < task.total).slice(0, 3).map(task => ({
-    id: task.id,
-    Icon: ClipboardCheck,
-    tone: 'task',
-    label: '待回收',
-    title: task.title,
-    text: `还差 ${task.total - task.completed} 人 · 截止 ${task.due}`,
-    page: 'tasks' as Page
-  }))
+  const tasks = data.tasks.filter(task => task.completed < task.total).slice(0, 3).map(task => {
+    const overdue = taskIsOverdue(task, now)
+    return {
+      id: task.id,
+      Icon: ClipboardCheck,
+      tone: overdue ? 'urgent' : 'task',
+      label: overdue ? '已截止' : '待回收',
+      title: task.title,
+      text: `${overdue ? '仍缺' : '还差'} ${task.total - task.completed} 人 · 截止 ${task.due}`,
+      page: 'tasks' as Page
+    }
+  })
   const items = [...todos, ...tasks]
   return <Modal title="提醒中心" onClose={onClose}><div className="reminder-center">
     <div className="reminder-summary"><span><Bell size={21} /></span><div><b>{items.length ? `还有 ${items.length} 件事需要留意` : '目前没有待处理提醒'}</b><p>{items.length ? '小昕已经按紧急程度整理好，点开即可查看。' : '可以安心休息一会儿，有新事项时会显示在这里。'}</p></div></div>
@@ -227,6 +239,7 @@ function StudentTask() {
         ) : (
           <form onSubmit={submit}>
             <div className="task-kicker">{task.audience} · 截止 {task.due}</div>
+            {taskIsOverdue(task) && <div className="late-submit-note"><Clock3 size={16} /><span><b>任务已超过截止时间</b>仍可补交，老师会在已截止任务中收到反馈。</span></div>}
             <h1>{task.title}</h1>
             <p className="task-desc">{task.description}</p>
             <div className="form-grid">
@@ -308,7 +321,7 @@ export default function App() {
   const activeClass = data.classes.find(item => item.id === activeClassId) || data.classes[0]
   const classStudents = data.students.filter(student => student.classId === activeClass?.id)
   const filteredStudents = classStudents.filter(student => `${student.name}${student.number}${student.tags.join('')}`.includes(search))
-  const reminderCount = data.todos.filter(todo => !todo.done).length + data.tasks.filter(task => task.completed < task.total).length
+  const reminderCount = Math.min(4, data.todos.filter(todo => !todo.done).length) + Math.min(3, data.tasks.filter(task => task.completed < task.total).length)
 
   function updateTodo(id: string) {
     setData(d => ({ ...d, todos: d.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) }))
@@ -468,8 +481,9 @@ function MobileHome({ data, activeClassId, setPage, onClassChange, onQr, onVoice
 }) {
   const pending = data.todos.filter(todo => !todo.done)
   const next = pending[0]
-  const task = data.tasks[0]
-  const progress = task ? Math.round(task.completed / task.total * 100) : 0
+  const task = data.tasks.find(item => !taskIsOverdue(item) && item.completed < item.total) || data.tasks[0]
+  const progress = taskProgress(task)
+  const taskOverdue = Boolean(task && taskIsOverdue(task))
   const urgentCount = pending.filter(todo => todo.priority === '紧急').length
   const careStates = [
     { id: 'water', title: '喝口温水吧', text: '忙碌的时候，也别忘了照顾自己。', image: `${import.meta.env.BASE_URL}mascot/xiaoxin-water.webp` },
@@ -560,8 +574,8 @@ function MobileHome({ data, activeClassId, setPage, onClassChange, onQr, onVoice
       </button>)}
     </section>
 
-    {task && <section className="class-pulse" onClick={() => setPage('tasks')}>
-      <div className="pulse-head"><div><span>班级动态</span><h3>{task.title}</h3></div><strong>{progress}%</strong></div>
+    {task && <section className={`class-pulse ${taskOverdue ? 'overdue' : ''}`} onClick={() => setPage('tasks')}>
+      <div className="pulse-head"><div><span>{taskOverdue ? '已截止 · 待跟进' : '班级动态'}</span><h3>{task.title}</h3></div><strong>{progress}%</strong></div>
       <div className="pulse-track"><i style={{ width: `${progress}%` }} /></div>
       <div className="pulse-meta"><span><ClipboardCheck size={15} />已回收 {task.completed} 份</span><span>还差 {task.total - task.completed} 人</span></div>
     </section>}
@@ -578,7 +592,8 @@ function MobileHome({ data, activeClassId, setPage, onClassChange, onQr, onVoice
 
 function Home({ data, studentTotal, activeClassName, setPage, updateTodo, onQr }: { data: AppData; studentTotal: number; activeClassName: string; setPage: (p: Page) => void; updateTodo: (id: string) => void; onQr: () => void }) {
   const pending = data.todos.filter(t => !t.done)
-  const progress = data.tasks.length ? Math.round(data.tasks[0].completed / data.tasks[0].total * 100) : 0
+  const focusTask = data.tasks.find(task => !taskIsOverdue(task) && task.completed < task.total) || data.tasks[0]
+  const progress = taskProgress(focusTask)
   const now = new Date()
   const greeting = greetingFor(now)
   return <div className="dashboard">
@@ -589,7 +604,7 @@ function Home({ data, studentTotal, activeClassName, setPage, updateTodo, onQr }
     <div className="metrics">
       <article><span className="metric-icon green"><Users /></span><div><small>班级人数</small><strong>{studentTotal}</strong><em>{activeClassName}</em></div></article>
       <article><span className="metric-icon amber"><ListTodo /></span><div><small>待处理事项</small><strong>{pending.length}</strong><em className="danger">1 项今天到期</em></div></article>
-      <article><span className="metric-icon blue"><ClipboardCheck /></span><div><small>任务回收</small><strong>{data.tasks[0]?.completed || 0}<i>/{data.tasks[0]?.total || 0}</i></strong><em>完成率 {progress}%</em></div></article>
+      <article><span className="metric-icon blue"><ClipboardCheck /></span><div><small>任务回收</small><strong>{focusTask?.completed || 0}<i>/{focusTask?.total || 0}</i></strong><em>{focusTask && taskIsOverdue(focusTask) ? '已截止，待跟进' : `完成率 ${progress}%`}</em></div></article>
       <article><span className="metric-icon purple"><FileArchive /></span><div><small>材料总数</small><strong>{data.materials.length}</strong><em>本地安全存储</em></div></article>
     </div>
     <div className="dashboard-grid">
@@ -597,7 +612,7 @@ function Home({ data, studentTotal, activeClassName, setPage, updateTodo, onQr }
         <div className="todo-list">{pending.slice(0, 4).map(todo => <TodoRow key={todo.id} todo={todo} toggle={() => updateTodo(todo.id)} />)}</div>
       </section>
       <section className="panel focus-panel"><header><div><h3>任务回收进度</h3><p>扫码反馈实时汇总</p></div><button className="more"><MoreHorizontal /></button></header>
-        {data.tasks[0] ? <><div className="focus-task"><span><QrCode /></span><div><b>{data.tasks[0].title}</b><small>{data.tasks[0].audience} · 截止 {data.tasks[0].due}</small></div></div><div className="progress"><i style={{ width: `${progress}%` }} /></div><div className="progress-meta"><span>已回收 <b>{data.tasks[0].completed}</b> 份</span><span>未提交 <b>{data.tasks[0].total - data.tasks[0].completed}</b> 人</span></div><button className="secondary full" onClick={() => setPage('tasks')}>查看名单与提醒</button></> : <Empty icon={QrCode} title="还没有任务" text="发布后即可查看回收进度" />}
+        {focusTask ? <><div className="focus-task"><span><QrCode /></span><div><b>{focusTask.title}</b><small>{focusTask.audience} · {taskIsOverdue(focusTask) ? '已截止' : '截止'} {focusTask.due}</small></div></div><div className="progress"><i style={{ width: `${progress}%` }} /></div><div className="progress-meta"><span>已回收 <b>{focusTask.completed}</b> 份</span><span>{taskIsOverdue(focusTask) ? '仍缺' : '未提交'} <b>{focusTask.total - focusTask.completed}</b> 人</span></div><button className="secondary full" onClick={() => setPage('tasks')}>查看名单与提醒</button></> : <Empty icon={QrCode} title="还没有任务" text="发布后即可查看回收进度" />}
       </section>
       <section className="panel schedule"><header><div><h3>今日日程</h3><p>{formatToday(now)}</p></div><CalendarDays size={21} /></header>
         {[['08:00', '晨会与班级巡视', '高一（3）班'], ['10:10', '数学课 · 函数单调性', '博学楼 302'], ['14:30', '年级组教研会', '行政楼 201'], ['16:00', '提交质量分析', '线上截止']].map((x, i) => <div className={`schedule-row ${i === 2 ? 'now' : ''}`} key={x[0]}><time>{x[0]}</time><i /><div><b>{x[1]}</b><span>{x[2]}</span></div></div>)}
@@ -630,12 +645,13 @@ function Todos({ data, updateTodo, onAdd }: { data: AppData; updateTodo: (id: st
 }
 
 function Tasks({ data, onNew, onQr, onScan }: { data: AppData; onNew: () => void; onQr: (t: Task) => void; onScan: () => void }) {
-  const [current, setCurrent] = useState<Task | null>(data.tasks[0] || null)
+  const [current, setCurrent] = useState<Task | null>(data.tasks.find(task => !taskIsOverdue(task) && task.completed < task.total) || data.tasks[0] || null)
   const feedback = data.feedback.filter(f => f.taskId === current?.id)
+  const currentOverdue = Boolean(current && taskIsOverdue(current))
   return <div className="page-stack"><section className="page-hero qr-hero"><div><span className="section-kicker">QR PUBLISHING</span><h2>发布中心</h2><p>信息、图片、打卡、报名和各种接龙，都能生成二维码发布并自动回收</p><div className="privacy-pill"><ShieldCheck size={16} />同一局域网内自动同步到老师端</div></div><div className="hero-actions"><button className="secondary light" onClick={onScan}><ScanLine size={18} />收取备用反馈</button><button className="primary gold" onClick={onNew}><Plus size={18} />新建发布</button></div></section>
     <div className="publish-types">{['信息收集', '图片收集', '打卡任务', '接龙报名', '确认回执'].map(item => <button key={item} onClick={onNew}><QrCode size={17} /><span>{item}</span></button>)}</div>
-    <div className="task-layout"><section className="task-list panel"><header><h3>已发布内容</h3><span>{data.tasks.length}</span></header>{data.tasks.map(t => { const pct = Math.round(t.completed / t.total * 100); return <button className={current?.id === t.id ? 'active' : ''} key={t.id} onClick={() => setCurrent(t)}><span className="task-icon"><QrCode /></span><div><b>{t.title}</b><small>{t.kind || '信息收集'} · {t.completed}/{t.total} 人</small><i><em style={{ width: `${pct}%` }} /></i></div><strong>{pct}%</strong></button>})}</section>
-      <section className="panel task-detail">{current ? <><header><div><span className="status-dot">{current.kind || '信息收集'} · 进行中</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>待提交</span></div><div><strong>{Math.round(current.completed / current.total * 100)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>自动同步记录</h4><button onClick={onScan}><ScanLine size={16} />收取备用反馈</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(0, 1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已同步</em></div>)}</div> : <Empty icon={ClipboardCheck} title="等待第一份反馈" text="学生提交后会自动显示在这里" />}</> : <Empty icon={QrCode} title="还没有发布内容" text="点击右上角开始发布" />}</section>
+    <div className="task-layout"><section className="task-list panel"><header><h3>已发布内容</h3><span>{data.tasks.length}</span></header>{data.tasks.map(t => { const pct = taskProgress(t); const overdue = taskIsOverdue(t); return <button className={current?.id === t.id ? 'active' : ''} key={t.id} onClick={() => setCurrent(t)}><span className="task-icon"><QrCode /></span><div><b>{t.title}</b><small>{overdue ? '已截止' : t.kind || '信息收集'} · {t.completed}/{t.total} 人</small><i><em style={{ width: `${pct}%` }} /></i></div><strong>{pct}%</strong></button>})}</section>
+      <section className="panel task-detail">{current ? <><header><div><span className={`status-dot ${currentOverdue ? 'overdue' : ''}`}>{current.kind || '信息收集'} · {currentOverdue ? '已截止' : '进行中'}</span><h3>{current.title}</h3><p>{current.description}</p></div><button className="secondary" onClick={() => onQr(current)}><QrCode size={17} />查看发布码</button></header><div className="task-stats"><div><strong>{current.completed}</strong><span>已回收</span></div><div><strong>{current.total - current.completed}</strong><span>{currentOverdue ? '截止时未交' : '待提交'}</span></div><div><strong>{taskProgress(current)}%</strong><span>完成率</span></div><div><strong>{current.due.split(' ')[0].slice(5)}</strong><span>截止日期</span></div></div><div className="feedback-head"><h4>自动同步记录</h4><button onClick={onScan}><ScanLine size={16} />收取备用反馈</button></div>{feedback.length ? <div className="feedback-list">{feedback.map(f => <div key={f.id}><div className="student-avatar">{f.student.slice(0, 1)}</div><div><b>{f.student}</b><span>{f.studentNo} · {f.submitted}</span></div><em><Check size={15} />已同步</em></div>)}</div> : <Empty icon={ClipboardCheck} title={currentOverdue ? '截止前没有收到反馈' : '等待第一份反馈'} text={currentOverdue ? '可重新发布新任务，或继续接收补交反馈' : '学生提交后会自动显示在这里'} />}</> : <Empty icon={QrCode} title="还没有发布内容" text="点击右上角开始发布" />}</section>
     </div>
   </div>
 }

@@ -626,6 +626,13 @@ tbody tr:hover{background:#f7f9f6}
   }
 }
 
+.status-dot.overdue{background:#fff0eb;color:#bd624d}
+.class-pulse.overdue{border-color:#f0d9d0;background:radial-gradient(circle at 100% 0,rgba(239,178,154,.14),transparent 110px),linear-gradient(145deg,#fff5f1,#fffdfc)}
+.class-pulse.overdue .pulse-head span,.class-pulse.overdue .pulse-head>strong{color:#b86652}
+.late-submit-note{display:flex;gap:8px;align-items:flex-start;margin:12px 0;padding:10px 12px;border-radius:10px;background:#fff4ef;color:#9d5d4d;font-size:10px;line-height:1.5}
+.late-submit-note svg{flex:none;margin-top:1px}
+.late-submit-note b{display:block}
+
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .pet-patrol{animation:none!important}
